@@ -18,7 +18,7 @@ const guideOpen = ref(false);
 const confirmRemove = ref(false);
 const error = ref('');
 const notice = ref('');
-const canUpgrade = computed(() => !!status.value?.update && status.value.mode !== 'source' && status.value.configured);
+const canUpgrade = computed(() => !!status.value?.update && status.value.mode !== 'source');
 let controller: AbortController | undefined;
 
 async function load() {
@@ -50,7 +50,7 @@ async function remove() {
   try {
     status.value = await request<DesktopUpdateSettings>('/api/update-settings', { method: 'DELETE' });
     token.value = ''; reveal.value = false; confirmRemove.value = false;
-    notice.value = 'Token 已移除，自动升级需要重新配置。';
+    notice.value = 'Token 已移除，继续使用免 token 更新。';
   } catch (failure) { error.value = (failure as Error).message; }
   finally { busy.value = ''; }
 }
@@ -89,25 +89,25 @@ onBeforeUnmount(() => { controller?.abort(); token.value = ''; });
       </dl>
       <p v-if="status.mode === 'source'" class="update-mode muted">电脑正在从源码运行。安装版支持在线升级。</p>
       <p v-else-if="!status.update" class="update-mode muted">请先在电脑上更新 Codex Mobile，即可从手机发起升级。</p>
-      <p v-else-if="!status.configured" class="update-mode muted">配置 GitHub token 后，即可在手机上发起升级。</p>
+      <p v-else class="update-mode muted">从公开仓库获取正式版本，无需配置 token。</p>
       <button v-if="canUpgrade" type="button" class="primary-button" :disabled="!!busy || upgrading" :aria-busy="upgrading" @click="upgrade">{{ upgrading ? '正在后台升级…' : '立即升级' }}</button>
-      <button v-if="status.configured" type="button" class="settings-row settings-action update-source" :aria-expanded="sourceOpen" aria-controls="update-source-content" @click="sourceOpen = !sourceOpen"><span>更新来源</span><ArrowRight :class="{ 'guide-expanded': sourceOpen }" /></button>
-      <CollapseMotion :open="!status.configured || sourceOpen">
+      <button type="button" class="settings-row settings-action update-source" :aria-expanded="sourceOpen" aria-controls="update-source-content" @click="sourceOpen = !sourceOpen"><span>更新来源</span><ArrowRight :class="{ 'guide-expanded': sourceOpen }" /></button>
+      <CollapseMotion :open="sourceOpen">
         <div id="update-source-content">
           <p v-if="status.source === 'environment'" class="update-mode muted">GitHub token 由电脑的 CODEX_MOBILE_GITHUB_TOKEN 环境变量提供。</p>
           <form v-else :aria-busy="busy === 'saving'" @submit.prevent="save">
-            <label for="update-token">{{ status.configured ? '替换 token' : 'GitHub token' }}</label>
+            <label for="update-token">{{ status.configured ? '替换可选 token' : 'GitHub token（可选）' }}</label>
             <div class="update-token-field">
-              <input id="update-token" v-model="token" :type="reveal ? 'text' : 'password'" :disabled="!!busy || upgrading" placeholder="粘贴你的 GitHub token" autocomplete="off" autocapitalize="none" :spellcheck="false" required aria-describedby="update-token-hint" />
+              <input id="update-token" v-model="token" :type="reveal ? 'text' : 'password'" :disabled="!!busy || upgrading" placeholder="无需填写即可更新" autocomplete="off" autocapitalize="none" :spellcheck="false" required aria-describedby="update-token-hint" />
               <button type="button" class="icon-button" :aria-label="reveal ? '隐藏输入的 token' : '显示输入的 token'" :aria-pressed="reveal" :disabled="!!busy || upgrading" @click="reveal = !reveal"><Hide v-if="reveal" /><View v-else /></button>
             </div>
-            <p id="update-token-hint" class="muted small">凭据只保存在电脑上，用于读取私有仓库。</p>
+            <p id="update-token-hint" class="muted small">遇到 GitHub 请求限额时可配置 token，凭据只保存在电脑上。</p>
             <button type="submit" class="primary-button" :disabled="!!busy || upgrading || !token.trim()">{{ busy === 'saving' ? '正在验证并保存…' : '保存并验证' }}</button>
           </form>
           <div v-if="status.source === 'file'" class="update-remove">
             <button class="text-button" :disabled="!!busy || upgrading" :aria-expanded="confirmRemove" @click="confirmRemove = !confirmRemove">移除已保存的 token</button>
             <CollapseMotion :open="confirmRemove"><div class="update-remove-confirm">
-              <p class="small">移除后需要重新配置 token 才能升级。</p>
+              <p class="small">移除后继续使用免 token 更新。</p>
               <div class="key-actions" :aria-busy="busy === 'removing'"><button class="secondary-button" :disabled="!!busy || upgrading" @click="remove">{{ busy === 'removing' ? '正在移除…' : '确认移除' }}</button><button class="text-button" :disabled="!!busy" @click="confirmRemove = false">取消</button></div>
             </div></CollapseMotion>
           </div>

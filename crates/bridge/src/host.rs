@@ -259,9 +259,6 @@ impl Host {
                 "源码运行不支持在线安装，请使用桌面安装版。",
             ));
         }
-        if self.updates.status()?["configured"] != true {
-            return Err(BridgeError::invalid("请先配置 GitHub token。"));
-        }
         // 同一轮下载和切换只接受一次调度，重复请求共享运行结果。
         self.mobile_update.send_if_modified(|pending| {
             let changed = !*pending;

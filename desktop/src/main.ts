@@ -85,8 +85,8 @@ document.querySelector('#app')!.innerHTML = `
           </div>
           <details id="update-settings"><summary>更新来源<span id="token-state" class="summary-info"></span></summary>
             <div class="details-body" data-feedback>
-              <form id="token-form"><label for="token">私有仓库 GitHub token</label><input id="token" type="password" autocomplete="off" placeholder="输入新的 token" aria-describedby="token-hint"><p id="token-hint" class="hint">仅需 Contents: read 权限，只保存在本机</p><div class="inline-actions"><button id="save-token" class="secondary-button" type="submit" disabled>验证并保存</button><button id="token-help" class="quiet-button" type="button">生成 token</button><button id="remove-token" class="quiet-button" type="button" hidden>移除 token</button></div></form>
-              <div id="remove-token-confirm" class="inline-confirm" hidden><p>移除后停止自动检查私有仓库的更新。</p><button id="confirm-remove-token" class="secondary-button">确认移除</button><button id="cancel-remove-token" class="quiet-button">取消</button></div>
+              <form id="token-form"><label for="token">GitHub token（可选）</label><input id="token" type="password" autocomplete="off" placeholder="无需填写即可更新" aria-describedby="token-hint"><p id="token-hint" class="hint">公开版本可直接更新，token 只保存在本机</p><div class="inline-actions"><button id="save-token" class="secondary-button" type="submit" disabled>验证并保存</button><button id="token-help" class="quiet-button" type="button">生成 token</button><button id="remove-token" class="quiet-button" type="button" hidden>移除 token</button></div></form>
+              <div id="remove-token-confirm" class="inline-confirm" hidden><p>移除后继续使用免 token 更新。</p><button id="confirm-remove-token" class="secondary-button">确认移除</button><button id="cancel-remove-token" class="quiet-button">取消</button></div>
             </div>
           </details>
         </section>
@@ -190,10 +190,10 @@ function render() {
   statusText('runtime-state', launching ? '正在连接 Codex…' : syncError || state.runtime.message);
   element('version').textContent = `v${state.version}`;
   const settings = state.updateSettings;
-  const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停。' : settings.configured ? '自动检查私有仓库，更新时保留现有聊天与配对信息。' : '配置 token 后可检查私有仓库的正式版本。';
+  const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停，可手动检查更新。' : '自动检查公开版本，无需配置 token。';
   statusText('update-status', state.update.message || mode);
   element('update-status').classList.toggle('error-text', state.update.phase === 'error');
-  element('token-state').textContent = settings.configured ? '已连接私有仓库' : '待配置';
+  element('token-state').textContent = settings.configured ? '公开仓库 · 已配置 token' : '公开仓库 · 免 token';
   element('release-preview').hidden = !state.release;
   if (state.release) {
     element('release-title').textContent = 'v' + state.release.version + ' 更新内容';
@@ -203,7 +203,7 @@ function render() {
   }
   button('apply-update').textContent = state.update.version ? '安装 v' + state.update.version + ' 并重启' : '安装并重启';
   field('token').disabled = busy || settings.source === 'environment';
-  element('token-hint').textContent = settings.source === 'environment' ? '当前 token 由电脑环境变量提供。请在电脑移除环境变量并重启后，再使用这里的配置。' : `${settings.configured ? 'token 已保存。' : ''}仅需 J-Smile/codex-mobile 的 Contents: read 权限，只保存在本机。`;
+  element('token-hint').textContent = settings.source === 'environment' ? '当前可选 token 由电脑环境变量提供。若要修改，请调整环境变量并重启。' : `${settings.configured ? 'token 已保存。' : '无需 token 即可更新。'}可选 token 仅需 Contents: read 权限，只保存在本机。`;
   for (const id of ['toggle-service', 'settings-service', 'save-service', 'copy-diagnostics', 'rotate-key', 'confirm-remove-token', 'confirm-rotate']) button(id).disabled = busy;
   for (const id of ['toggle-service', 'settings-service', 'save-service']) button(id).disabled = busy || launching;
   button('open-codex').disabled = busy || launching;
@@ -212,7 +212,7 @@ function render() {
   element('sync-actions').hidden = state.sync.state !== 'error';
   button('retry-sync').disabled = busy || launching;
   button('copy-key').disabled = busy || !pairing;
-  button('check-update').disabled = busy || !settings.configured || settings.mode === 'source' || state.update.phase === 'checking';
+  button('check-update').disabled = busy || settings.mode === 'source' || state.update.phase === 'checking' || state.update.phase === 'applying';
   button('apply-update').hidden = state.update.phase !== 'ready';
   button('apply-update').disabled = busy;
   button('remove-token').hidden = !settings.configured || settings.source !== 'file';

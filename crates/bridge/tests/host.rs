@@ -246,7 +246,7 @@ async fn host_distinguishes_http_from_sync_and_rotates_all_existing_sessions() {
 }
 
 #[tokio::test]
-async fn paired_phone_can_request_one_background_update() {
+async fn paired_phone_can_request_one_background_update_without_github_token() {
     let f = support::Fixture::new();
     let _mock = support::MockDesktop::start(&f).await;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -259,7 +259,6 @@ async fn paired_phone_can_request_one_background_update() {
     }
     .save(&f.paths.data_home)
     .unwrap();
-    std::fs::write(f.paths.data_home.join("github-token"), "fixture-token").unwrap();
     let host = Host::open(f.paths.clone(), true).unwrap();
     let mut requests = host.mobile_update_requests();
     host.start().await.unwrap();
@@ -313,6 +312,8 @@ async fn paired_phone_can_request_one_background_update() {
     assert_eq!(response.headers()["cache-control"], "no-store");
     let data: serde_json::Value = response.json().await.unwrap();
     assert_eq!(data["update"]["phase"], "queued");
+    assert_eq!(data["configured"], false);
+    assert_eq!(data["source"], serde_json::Value::Null);
     assert!(data.get("token").is_none());
     *host.update_state.write().await =
         json!({"phase":"current","message":"当前已是最新正式版本。"});

@@ -75,9 +75,10 @@ test('update settings retain failed input and distinguish verification from remo
   assert.equal(f.app.busy.value, '');
   assert.equal(f.app.confirmRemove.value, false);
   assert.equal(f.app.status.value.configured, false);
+  assert.equal(f.app.notice.value, 'Token 已移除，继续使用免 token 更新。');
 });
 
-test('手机只提交一次升级，失败保留面板，接受请求后关闭面板', async t => {
+test('手机免 token 升级只提交一次，失败保留面板，接受请求后关闭面板', async t => {
   const versions = [];
   let resolveStart, rejectStart;
   const f = fixture(t, 'settings/UpdateSettings.vue', {
@@ -89,7 +90,7 @@ test('手机只提交一次升级，失败保留面板，接受请求后关闭�
       rejectStart = reject;
     }),
   });
-  f.app.status.value = { configured: true, source: 'file', version: '0.3.8', mode: 'paused' };
+  f.app.status.value = { configured: false, source: null, version: '0.3.8', mode: 'paused' };
   await f.app.upgrade();
   assert.deepEqual(versions, []);
 
@@ -98,14 +99,16 @@ test('手机只提交一次升级，失败保留面板，接受请求后关闭�
   await f.app.upgrade();
   assert.equal(f.app.busy.value, 'starting');
   assert.deepEqual(versions, ['0.3.8']);
-  rejectStart(new Error('请先配置 GitHub token。'));
+  rejectStart(new Error('电脑暂时无法准备更新。'));
   await failed;
   assert.deepEqual(f.events, []);
-  assert.equal(f.app.error.value, '请先配置 GitHub token。');
+  assert.equal(f.app.error.value, '电脑暂时无法准备更新。');
 
   const retry = f.app.upgrade();
   resolveStart();
   await retry;
   assert.deepEqual(f.events, [['close']]);
   assert.equal(f.app.error.value, '');
+  f.app.status.value.mode = 'source';
+  assert.equal(f.app.canUpgrade.value, false);
 });

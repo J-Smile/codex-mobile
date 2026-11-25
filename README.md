@@ -27,7 +27,11 @@
 
 ### 软件更新
 
-当前内置更新器仍需要 GitHub token。在桌面“设置 → 软件更新 → 更新来源”或手机“设置 → 在线升级”中配置。生成 fine-grained personal access token，仅选择 J-Smile/codex-mobile 仓库，并授予 Contents: read。验证成功后保存在本机；界面不回显已保存的 token，浏览器也不持久化它。仓库重建后，原来绑定旧仓库的 token 需要重新选择新仓库；手动下载公开的 Release 不需要 token。
+从 v0.3.26 起，安装版直接读取公开仓库的正式 Release，无需 GitHub token。桌面点击“检查更新”，或在手机“设置 → 在线升级”中点击“立即升级”。更新来源默认收起。
+
+遇到 GitHub 请求限额时，可在“更新来源”配置可选 token。生成 fine-grained personal access token，仅选择 J-Smile/codex-mobile 仓库，并授予 Contents: read。验证成功后只保存在电脑上，界面不回显，浏览器不持久化。旧 token 失效或无权读取新仓库时，本轮检查和下载自动改用匿名请求；移除 token 后仍可更新。
+
+旧版客户端仍使用旧升级逻辑；无法检查更新时，从 GitHub Releases 手动安装一次 v0.3.26 或更高版本。同版本重新打包不会触发自动升级，后续修复使用递增版本号。
 
 手机“设置 → 在线升级”同时显示运行中的 Codex Mobile 版本和当前官方连接的版本。App Server 版本来自连接握手；原生 App Tools 没有提供版本时显示“版本未知”，不冒充 App Server 版本。断开时显示“未连接”，重新打开面板会读取最新状态。
 
@@ -35,7 +39,7 @@ token 位于 Windows 的 %USERPROFILE%/.codex-mobile/github-token 或 macOS 的 
 
 安装包每 15 分钟检查正式 Release。Rust 更新器下载对应平台的 ZIP、校验 SHA-256 和运行资源，等待在途请求完成或记录未知结果后切换桌面版本。新版报告服务就绪后才保存安装记录；启动失败时仅可恢复同样声明新连接边界的版本并显示原因，同一失败版本等待后续版本。电脑端也可以手动检查和安装。
 
-Token 配置成功后，在手机打开“设置 → 在线升级”，点一次“立即升级”即可回到聊天。电脑在后台检查、下载并校验新版，切换时连接会短暂中断，恢复后手机自动重连，在编辑或发送结束后刷新并恢复当前聊天和草稿。手机发起升级需要支持该入口的桌面安装版。
+在手机打开“设置 → 在线升级”，点一次“立即升级”即可回到聊天。电脑在后台检查、下载并校验新版，切换时连接会短暂中断，恢复后手机自动重连，在编辑或发送结束后刷新并恢复当前聊天和草稿。手机发起升级需要支持该入口的桌面安装版。
 
 更新资源保存在 .codex-mobile/updates/native。Windows 后续在线升级沿用桌面程序的启动路径，可以继续使用已有的防火墙放行规则。首次开放局域网访问时按 Windows 提示授权，从旧版首次迁入时也可能需要授权一次。原快捷方式会进入最近成功安装的版本。CODEX_MOBILE_AUTO_UPDATE=0 暂停自动检查；源码运行不安装 Release。旧 Node 更新器需要手动安装一次此桌面版。更新只切换 Codex Mobile，不会重启官方 Codex 或共享运行时。
 
@@ -214,13 +218,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 1. 准备新版本时执行 `npm run release:version -- 0.3.20`（示例，实际版本必须高于已发布版本）。这只同步 package.json、npm 锁文件、Cargo.toml、Cargo.lock 与 Tauri 配置中的版本，不运行编译，也不提交或推送代码。
 2. 提交并推送本次源码。在 [Build and release](https://github.com/J-Smile/codex-mobile/actions/workflows/release.yml) 中选择 **Run workflow**，选择包含修改的分支，勾选 **publish** 后运行。两平台测试、打包通过后，工作流以该次提交创建版本标签并发布正式 Release。也可以推送与源码版本一致的标签触发发布。日常发布优先从 `main` 手动运行，默认分支成功打包后保存可供后续版本和标签复用的 Rust 依赖缓存。
-3. 桌面“在线升级”配置此仓库的 Contents: read token 后，每 15 分钟检查正式 Release，也可手动检查。发现更高版本后下载 CI 生成的 ZIP、验证 SHA-256，并切换到新版。电脑只下载和运行成品，不执行 npm、Cargo 或 C++ 编译。
+3. 桌面每 15 分钟检查公开的正式 Release，也可手动检查，无需配置 token。发现更高版本后下载 CI 生成的 ZIP、验证 SHA-256，并切换到新版。电脑只下载和运行成品，不执行 npm、Cargo 或 C++ 编译。
 
 检查后可以展开“版本更新内容”，查看 GitHub Release 的版本号、发布日期与更新说明；已经是最新版时也可查看。手动准备好更新后，“安装 v版本号 并重启”会切换到下载的新版本。
 
 CI 开始时校验所有版本号和发布标签。安装程序、免安装 ZIP 和 SHA-256 文件全部上传完成后，Release 才正式可见。已发布版本不覆盖；需要修复时提高版本号再发布。未勾选 publish 的分支手动构建只生成 Artifacts，桌面不会安装这些构建。
 
-GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。电脑保存的只读 token 仅用于内置更新器读取 Release；两者用途独立，真实凭据和本机数据不进入公开仓库。
+GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。内置更新器默认匿名读取公开 Release，可选的只读 token 只保存在本机；两者用途独立，真实凭据和本机数据不进入公开仓库。
 
 npm run package 只复制桌面程序、Rust 组件、手机构建资源和 README，在隔离数据目录启动包内 Rust HTTP 服务，检查网页资源与认证。个人历史、密钥、浏览器资料和本地配置不进入发布包。CI 的编译与隔离测试不代替 Windows/macOS 桌面和真实手机的实机验收。
 

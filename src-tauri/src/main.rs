@@ -361,7 +361,7 @@ fn main() {
                         || host
                             .updates
                             .status()
-                            .is_ok_and(|s| s["mode"] == "automatic" && s["configured"] == true)
+                            .is_ok_and(|s| s["mode"] == "automatic")
                     {
                         if host.prepare_update().await.unwrap_or(false) {
                             let _ = apply(&handle, true).await;
