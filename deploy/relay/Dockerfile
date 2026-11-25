@@ -4,21 +4,18 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,id=codex-mobile-npm,target=/root/.npm npm ci --no-audit --no-fund
 
 FROM node-dependencies AS mobile
-COPY mobile/ mobile/
-COPY public/ public/
-COPY preview-formats.json ./
+COPY apps/mobile/ apps/mobile/
+COPY shared/ shared/
 RUN CODEX_MOBILE_RELAY_WEB=1 npm run build:mobile
 
 FROM node-dependencies AS frontend
-COPY mobile/ mobile/
-COPY desktop/ desktop/
-COPY public/ public/
-COPY preview-formats.json ./
+COPY apps/mobile/ apps/mobile/
+COPY apps/desktop/ apps/desktop/
+COPY shared/ shared/
 RUN npm run build:web
 
 FROM scratch AS frontend-export
 COPY --from=frontend /source/dist/ /dist/
-COPY --from=frontend /source/desktop-dist/ /desktop-dist/
 
 # 与 Cargo.toml 声明的 Rust 最低版本保持一致。
 FROM rust:1.90-bookworm AS rust-toolchain
@@ -27,7 +24,7 @@ WORKDIR /source
 FROM rust-toolchain AS build-relay
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
-COPY src-tauri/ src-tauri/
+COPY apps/desktop/src-tauri/ apps/desktop/src-tauri/
 RUN cargo build --locked --release -p codex-mobile-relay
 
 FROM debian:bookworm-slim AS relay
@@ -42,7 +39,6 @@ RUN rustup component add rustfmt clippy
 COPY --from=node-dependencies /source/node_modules/ /source/node_modules/
 COPY . .
 COPY --from=frontend /source/dist/ /source/dist/
-COPY --from=frontend /source/desktop-dist/ /source/desktop-dist/
 # 通用检查只编译桥接与中转；原生桌面仍在 Windows/macOS CI 验证。
 # 缓存交给 BuildKit 回收，不写入宿主项目，也不保留增量和调试符号。
 ENV CARGO_TARGET_DIR=/build/target \
@@ -64,5 +60,5 @@ RUN --mount=type=cache,id=codex-mobile-cargo-registry,target=/usr/local/cargo/re
     && cargo clippy --locked -p codex-mobile-bridge -p codex-mobile-relay --all-targets -- -D warnings
 
 FROM caddy:2-alpine AS web
-COPY --from=mobile /source/dist/ /srv/codex-mobile/
+COPY --from=mobile /source/dist/mobile/ /srv/codex-mobile/
 COPY deploy/relay/Caddyfile /etc/caddy/Caddyfile

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bridge", "crates/relay", "src-tauri"]
+members = ["crates/bridge", "crates/relay", "apps/desktop/src-tauri"]
 default-members = ["crates/bridge"]
 resolver = "2"
 

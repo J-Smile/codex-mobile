@@ -10,7 +10,7 @@ use support::Fixture;
 
 fn seed() -> Value {
     serde_json::from_str(include_str!(
-        "../../../test/fixtures/official-create-thread-seed.json"
+        "../../../tests/fixtures/official-create-thread-seed.json"
     ))
     .unwrap()
 }

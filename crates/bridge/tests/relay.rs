@@ -1082,7 +1082,7 @@ async fn relay_serves_concurrent_mobile_clients() {
         let mut child = tokio::process::Command::new(node)
             .args([
                 "--disable-warning=ExperimentalWarning",
-                "test/fixtures/relay-client.mjs",
+                "tests/fixtures/relay-client.mjs",
             ])
             .current_dir(project)
             .stdin(std::process::Stdio::piped())

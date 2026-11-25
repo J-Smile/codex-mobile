@@ -172,17 +172,18 @@ iOS 16.4 或更新版本的主屏幕网页 App 支持系统推送。在项目列
 
 | 路径 | 职责 |
 | --- | --- |
-| `mobile/` | 手机网页的 HTML、Vite 配置和 Vue 入口。`mobile/src/features/` 按聊天、输入、会话列表、配对、设置、目标和用量组织，文件预览在聊天功能下，通用面板在 `mobile/src/components/`。 |
-| `desktop/` | 桌面窗口的 HTML、TypeScript 和样式。 |
-| `src-tauri/` | Tauri 宿主、托盘、系统入口和安装包配置。 |
+| `apps/mobile/` | 手机网页的 HTML、Vite 配置和 Vue 入口。`apps/mobile/src/features/` 按聊天、输入、会话列表、配对、设置、目标和用量组织，文件预览在聊天功能下，通用面板在 `apps/mobile/src/components/`。 |
+| `apps/desktop/` | 桌面窗口的 HTML、TypeScript 和样式。 |
+| `apps/desktop/src-tauri/` | Tauri 宿主、托盘、系统入口和安装包配置。 |
 | `crates/bridge/` | Rust HTTP/SSE 服务、Codex App Server 连接、运行时和更新器，集成测试在该 crate 的 `tests/`。 |
 | `crates/relay/` | VPS 上的 SSE/POST 中转，按桌面和会话转发密文。 |
 | `deploy/relay/` | 同一台 VPS 上的手机网页、HTTPS 和中转部署配置。 |
-| `public/` | 网页图标、PWA 清单和 Service Worker。桌面界面也复用这里的图标。 |
+| `shared/public/` | 网页图标、PWA 清单和 Service Worker。桌面界面也复用这里的图标。 |
+| `dist/` | 本机构建产物：`mobile/`、`desktop/` 为网页资源，`release/` 为安装程序、ZIP 和校验文件；不提交。 |
 | `scripts/` | 开发、构建、打包和版本命令。 |
-| `test/` | `test/mobile/` 验证手机网页，`test/tooling/` 验证构建工具，`test/fixtures/` 保存 Web 和 Rust 共用的测试样例。 |
+| `tests/` | `tests/mobile/` 验证手机网页，`tests/tooling/` 验证构建工具，`tests/fixtures/` 保存 Web 和 Rust 共用的测试样例。 |
 
-可预览的文件格式统一定义在根目录的 `preview-formats.json`，由手机网页和 Rust 桥接共同读取。
+可预览的文件格式统一定义在 `shared/preview-formats.json`，由手机网页和 Rust 桥接共同读取。
 
 ## 验证
 
@@ -193,7 +194,7 @@ npm run build
 npm test
 ```
 
-`build` 将手机与桌面前端导出到 `dist/`、`desktop-dist/`。`test` 在容器内完成两端前端构建、版本检查、网页测试、Rust/relay 测试及 fmt、check、clippy；测试每次执行，依赖和编译缓存复用。Rust 检查覆盖桥接与中转，Windows 命名管道、系统集成和桌面安装包仍由对应平台的原生验证负责。
+`build` 将手机与桌面前端导出到 `dist/mobile/`、`dist/desktop/`。`test` 在容器内完成两端前端构建、版本检查、网页测试、Rust/relay 测试及 fmt、check、clippy；测试每次执行，依赖和编译缓存复用。Rust 检查覆盖桥接与中转，Windows 命名管道、系统集成和桌面安装包仍由对应平台的原生验证负责。
 
 容器不会挂载宿主项目的 `target`、`.local` 或个人目录，源码按 `.dockerignore` 白名单传入。缓存保存在 Docker 数据盘，由 BuildKit 的垃圾回收管理；切换 Docker 不会自动清除以前的本机编译缓存。Docker Desktop 可在设置中调整数据盘位置和构建缓存保留量。
 

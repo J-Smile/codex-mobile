@@ -10,11 +10,11 @@ if (process.argv.length > 3 || (requested !== undefined && !stableVersion.test(r
   throw new Error('用法：npm run release:version -- 0.3.1；仅接受正式版本号，不带 v。');
 }
 const sources = Object.fromEntries([
-  'package.json', 'package-lock.json', 'Cargo.toml', 'Cargo.lock', 'src-tauri/tauri.conf.json',
+  'package.json', 'package-lock.json', 'Cargo.toml', 'Cargo.lock', 'apps/desktop/src-tauri/tauri.conf.json',
 ].map(file => [file, fs.readFileSync(path.join(root, file), 'utf8')]));
 const manifest = JSON.parse(sources['package.json']);
 const lock = JSON.parse(sources['package-lock.json']);
-const tauri = JSON.parse(sources['src-tauri/tauri.conf.json']);
+const tauri = JSON.parse(sources['apps/desktop/src-tauri/tauri.conf.json']);
 const workspace = parse(sources['Cargo.toml']);
 const cargoLock = parse(sources['Cargo.lock']);
 const version = requested ?? manifest.version;
@@ -23,7 +23,7 @@ const versions = {
   'package-lock.json': lock.version,
   'package-lock.json packages[""]': lock.packages[''].version,
   'Cargo.toml': workspace.workspace.package.version,
-  'src-tauri/tauri.conf.json': tauri.version,
+  'apps/desktop/src-tauri/tauri.conf.json': tauri.version,
 };
 for (const name of ['codex-mobile-bridge', 'codex-mobile-desktop', 'codex-mobile-relay']) {
   const entry = cargoLock.package.find(item => item.name === name);
@@ -34,7 +34,7 @@ if (requested !== undefined) {
   manifest.version = lock.version = lock.packages[''].version = tauri.version = version;
   sources['package.json'] = JSON.stringify(manifest, null, 2) + '\n';
   sources['package-lock.json'] = JSON.stringify(lock, null, 2) + '\n';
-  sources['src-tauri/tauri.conf.json'] = JSON.stringify(tauri, null, 2) + '\n';
+  sources['apps/desktop/src-tauri/tauri.conf.json'] = JSON.stringify(tauri, null, 2) + '\n';
   sources['Cargo.toml'] = sources['Cargo.toml'].replace(
     /(\[workspace\.package\][\s\S]*?\nversion\s*=\s*)"[^"]+"/,
     `$1"${version}"`,

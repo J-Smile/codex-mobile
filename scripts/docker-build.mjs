@@ -22,10 +22,10 @@ try {
     process.exitCode = result.status ?? 1;
   } else if (temporary) {
     // 导出成功后再替换，保留 Vite 清理旧哈希资源的行为。
-    for (const name of ['dist', 'desktop-dist']) {
-      const destination = path.join(root, name);
+    for (const name of ['mobile', 'desktop']) {
+      const destination = path.join(root, 'dist', name);
       fs.rmSync(destination, { recursive: true, force: true });
-      fs.cpSync(path.join(temporary, name), destination, { recursive: true });
+      fs.cpSync(path.join(temporary, 'dist', name), destination, { recursive: true });
     }
   }
 } finally {

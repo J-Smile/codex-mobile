@@ -22,7 +22,7 @@ enum Kind {
 
 static FORMATS: LazyLock<HashMap<String, Kind>> = LazyLock::new(|| {
     let groups: HashMap<Kind, Vec<String>> =
-        serde_json::from_str(include_str!("../../../preview-formats.json"))
+        serde_json::from_str(include_str!("../../../shared/preview-formats.json"))
             .expect("预览格式表无效");
     groups
         .into_iter()

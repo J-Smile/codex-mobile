@@ -1,20 +1,18 @@
 node_modules/
 dist/
-release/
 .local/
 .impeccable/
 .idea/
 target/
-desktop-dist/
-src-tauri/gen/
-src-tauri/binaries/
-src-tauri/release.json
-src-tauri/icons/*
-!src-tauri/icons/32x32.png
-!src-tauri/icons/128x128.png
-!src-tauri/icons/128x128@2x.png
-!src-tauri/icons/icon.icns
-!src-tauri/icons/icon.ico
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/release.json
+apps/desktop/src-tauri/icons/*
+!apps/desktop/src-tauri/icons/32x32.png
+!apps/desktop/src-tauri/icons/128x128.png
+!apps/desktop/src-tauri/icons/128x128@2x.png
+!apps/desktop/src-tauri/icons/icon.icns
+!apps/desktop/src-tauri/icons/icon.ico
 *.log
 
 # Internal documents and browser QA stay on this computer.

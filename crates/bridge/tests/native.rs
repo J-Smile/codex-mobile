@@ -12,7 +12,7 @@ async fn official_native_host_connect_and_stop() {
     let paths = Paths {
         codex_home: dirs::home_dir().unwrap().join(".codex"),
         runtime_home: data.join("runtime"),
-        web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist"),
+        web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         data_home: data.clone(),
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -88,7 +88,7 @@ async fn official_native_http_send_and_reconnect() {
     let paths = Paths {
         codex_home: dirs::home_dir().unwrap().join(".codex"),
         runtime_home: data.join("runtime"),
-        web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist"),
+        web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         data_home: data,
     };
     let app = Bridge::open(

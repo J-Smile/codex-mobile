@@ -7,6 +7,9 @@ import { createHash } from 'node:crypto';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const desktopRoot = path.join(root, 'apps', 'desktop');
+const tauriRoot = path.join(desktopRoot, 'src-tauri');
+const mobileDist = path.join(root, 'dist', 'mobile');
 const suffix = process.platform === 'win32' ? '.exe' : '';
 const env = { ...process.env };
 const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') || 'PATH';
@@ -37,17 +40,17 @@ function targetDirectory() {
 }
 function prepare(release) {
   run(cargo, ['build', '--locked', '-p', 'codex-mobile-bridge', '--bins', ...(release ? ['--release'] : [])]);
-  const binaries = path.join(root, 'src-tauri', 'binaries');
+  const binaries = path.join(tauriRoot, 'binaries');
   fs.mkdirSync(binaries, { recursive: true });
   const obsolete = path.join(binaries, 'codex-mobile-runtime' + suffix);
   if (fs.existsSync(obsolete)) fs.unlinkSync(obsolete);
   const output = path.join(targetDirectory(), release ? 'release' : 'debug');
   for (const name of helpers) fs.copyFileSync(path.join(output, name + suffix), path.join(binaries, name + suffix));
-  fs.writeFileSync(path.join(root, 'src-tauri', 'release.json'), JSON.stringify({
+  fs.writeFileSync(path.join(tauriRoot, 'release.json'), JSON.stringify({
     backend: 'rust', runtimeBoundary: 2, version: manifest.version, platform: process.platform, arch: process.arch,
   }) + '\n');
 }
-function tauri(args) { run(process.execPath, [path.join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js'), ...args]); }
+function tauri(args) { run(process.execPath, [path.join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js'), ...args], { cwd: desktopRoot }); }
 
 async function verifyPackage(resources) {
   const temporary = fs.mkdtempSync(path.join(root, '.local', 'native-smoke-'));
@@ -95,16 +98,16 @@ async function packageNative() {
   let resources = staging;
   if (process.platform === 'win32') {
     fs.copyFileSync(path.join(output, 'codex-mobile-desktop.exe'), path.join(staging, 'Codex Mobile.exe'));
-    fs.cpSync(path.join(root, 'dist'), path.join(staging, 'mobile'), { recursive: true });
-    fs.cpSync(path.join(root, 'src-tauri', 'binaries'), path.join(staging, 'bin'), { recursive: true });
+    fs.cpSync(mobileDist, path.join(staging, 'mobile'), { recursive: true });
+    fs.cpSync(path.join(tauriRoot, 'binaries'), path.join(staging, 'bin'), { recursive: true });
   } else {
     fs.cpSync(path.join(output, 'bundle', 'macos', 'Codex Mobile.app'), path.join(staging, 'Codex Mobile.app'), { recursive: true });
     resources = path.join(staging, 'Codex Mobile.app', 'Contents', 'Resources');
   }
-  fs.copyFileSync(path.join(root, 'src-tauri', 'release.json'), path.join(staging, 'release.json'));
+  fs.copyFileSync(path.join(tauriRoot, 'release.json'), path.join(staging, 'release.json'));
   fs.copyFileSync(path.join(root, 'README.md'), path.join(staging, 'README.md'));
   await verifyPackage(resources);
-  const release = path.join(root, 'release'); fs.mkdirSync(release, { recursive: true });
+  const release = path.join(root, 'dist', 'release'); fs.mkdirSync(release, { recursive: true });
   const archive = path.join(release, name + '.zip');
   if (fs.existsSync(archive)) fs.unlinkSync(archive);
   if (process.platform === 'win32') {
@@ -139,8 +142,8 @@ if (mode === 'dev-assets' || mode === 'build-assets') {
 } else if (mode === 'package') {
   await packageNative();
 } else if (mode === 'bridge') {
-  if (!fs.existsSync(path.join(root, 'dist', 'index.html'))) npm('build:mobile');
-  run(cargo, ['run', '--locked', '-p', 'codex-mobile-bridge', '--bin', 'codex-mobile-bridge', '--', '--web-root', path.join(root, 'dist')]);
+  if (!fs.existsSync(path.join(mobileDist, 'index.html'))) npm('build:mobile');
+  run(cargo, ['run', '--locked', '-p', 'codex-mobile-bridge', '--bin', 'codex-mobile-bridge', '--', '--web-root', mobileDist]);
 } else if (mode === 'test') {
   run(cargo, ['test', '--locked', '-p', 'codex-mobile-bridge', '-p', 'codex-mobile-relay', '--tests']);
 } else if (mode === 'test-relay') {
