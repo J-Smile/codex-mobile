@@ -1,0 +1,55 @@
+[package]
+name = "codex-mobile-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+axum = { version = "0.8", features = ["query", "macros"] }
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+dirs = "6"
+futures-util = "0.3"
+hex = "0.4"
+if-addrs = "0.14"
+indexmap = { version = "2", features = ["serde"] }
+mime_guess = "2"
+p256 = "0.13"
+percent-encoding = "2"
+rand = "0.9"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json", "stream"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+semver = "1"
+sha2 = "0.10"
+snow = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+toml = "0.9"
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+web-push-native = "0.5"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+notify = { version = "8.2", default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Pipes", "Win32_System_Diagnostics_ToolHelp", "Win32_Security"] }
+
+[dev-dependencies]
+codex-mobile-relay = { path = "../relay" }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+

@@ -1,0 +1,22 @@
+[package]
+name = "codex-mobile-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = "0.8"
+base64 = "0.22"
+futures-util = "0.3"
+rand = "0.9"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4"] }
+webauthn-rs = { version = "0.6.2", default-features = false, features = ["conditional-ui"] }
+webauthn-rs-proto = "0.6.2"

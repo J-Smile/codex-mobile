@@ -1,0 +1,3503 @@
+[
+  {
+    "source": "interactions:0",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": 7,
+          "method": "item/tool/requestUserInput",
+          "params": {
+            "threadId": "thread",
+            "turnId": "turn",
+            "questions": [
+              {
+                "id": "choice",
+                "header": "选项",
+                "question": "使用哪种方式？",
+                "options": [
+                  {
+                    "label": "直接发送",
+                    "description": "立即交给 Codex"
+                  },
+                  {
+                    "label": "排队",
+                    "description": "当前任务之后处理"
+                  }
+                ]
+              },
+              {
+                "id": "details",
+                "question": "补充内容",
+                "options": null
+              }
+            ]
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "7",
+        "turnId": "turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "choice",
+            "header": "选项",
+            "question": "使用哪种方式？",
+            "secret": false,
+            "options": [
+              {
+                "label": "直接发送",
+                "description": "立即交给 Codex"
+              },
+              {
+                "label": "排队",
+                "description": "当前任务之后处理"
+              }
+            ]
+          },
+          {
+            "id": "details",
+            "header": "",
+            "question": "补充内容",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:1",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "answers": {
+          "choice": [
+            "排队"
+          ],
+          "details": [
+            "长行自动换行"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "answers": {
+        "choice": {
+          "answers": [
+            "排队"
+          ]
+        },
+        "details": {
+          "answers": [
+            "长行自动换行"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "source": "interactions:2",
+    "name": "asyncReply",
+    "args": [
+      [],
+      "7",
+      {}
+    ],
+    "error": {
+      "status": 409
+    }
+  },
+  {
+    "source": "interactions:3",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "answers": {
+          "choice": [
+            "排队"
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:4",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "answers": {
+          "choice": [
+            "排队"
+          ],
+          "details": [
+            ""
+          ],
+          "unknown": [
+            "答案"
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:5",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      []
+    ],
+    "expected": []
+  },
+  {
+    "source": "interactions:6",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": 7,
+          "method": "item/tool/requestUserInput",
+          "params": {
+            "threadId": "thread",
+            "turnId": "turn",
+            "questions": [
+              {
+                "id": "choice",
+                "header": "选项",
+                "question": "使用哪种方式？",
+                "options": [
+                  {
+                    "label": "直接发送",
+                    "description": "立即交给 Codex"
+                  },
+                  {
+                    "label": "排队",
+                    "description": "当前任务之后处理"
+                  }
+                ]
+              },
+              {
+                "id": "details",
+                "question": "补充内容",
+                "options": null
+              }
+            ]
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "7",
+        "turnId": "turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "choice",
+            "header": "选项",
+            "question": "使用哪种方式？",
+            "secret": false,
+            "options": [
+              {
+                "label": "直接发送",
+                "description": "立即交给 Codex"
+              },
+              {
+                "label": "排队",
+                "description": "当前任务之后处理"
+              }
+            ]
+          },
+          {
+            "id": "details",
+            "header": "",
+            "question": "补充内容",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:7",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "skip": true
+      }
+    ],
+    "expected": {
+      "answers": {}
+    }
+  },
+  {
+    "source": "interactions:8",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "answers": {}
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:9",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "skip": "true"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:10",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": 7,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread",
+          "turnId": "turn",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "选项",
+              "question": "使用哪种方式？",
+              "options": [
+                {
+                  "label": "直接发送",
+                  "description": "立即交给 Codex"
+                },
+                {
+                  "label": "排队",
+                  "description": "当前任务之后处理"
+                }
+              ]
+            },
+            {
+              "id": "details",
+              "question": "补充内容",
+              "options": null
+            }
+          ]
+        }
+      },
+      {
+        "skip": true,
+        "answers": {
+          "choice": [
+            "排队"
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:11",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "command",
+          "method": "item/commandExecution/requestApproval",
+          "params": {
+            "command": "git status"
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "command",
+        "kind": "approval",
+        "title": "允许执行此命令？",
+        "message": "",
+        "replySupported": true,
+        "approveLabel": "允许本次",
+        "detail": "git status"
+      }
+    ]
+  },
+  {
+    "source": "interactions:12",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "command",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "command": "git status"
+        }
+      },
+      {
+        "skip": true,
+        "decision": "accept",
+        "action": "accept"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:13",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "form",
+          "method": "mcpServer/elicitation/request",
+          "params": {
+            "mode": "form",
+            "requestedSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "form",
+        "kind": "form",
+        "title": "Codex 需要你确认",
+        "message": "",
+        "replySupported": true,
+        "server": "",
+        "fields": [],
+        "detail": ""
+      }
+    ]
+  },
+  {
+    "source": "interactions:14",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      {
+        "skip": true,
+        "decision": "accept",
+        "action": "accept"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:15",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "onboarding",
+          "method": "item/tool/call",
+          "params": {
+            "tool": "request_onboarding_input",
+            "arguments": {
+              "questions": [
+                {
+                  "id": "choice",
+                  "header": "选项",
+                  "question": "使用哪种方式？",
+                  "options": [
+                    {
+                      "label": "直接发送",
+                      "description": "立即交给 Codex"
+                    },
+                    {
+                      "label": "排队",
+                      "description": "当前任务之后处理"
+                    }
+                  ]
+                },
+                {
+                  "id": "details",
+                  "question": "补充内容",
+                  "options": null
+                }
+              ]
+            }
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "onboarding",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "questions": [
+          {
+            "id": "choice",
+            "header": "选项",
+            "question": "使用哪种方式？",
+            "secret": false,
+            "options": [
+              {
+                "label": "直接发送",
+                "description": "立即交给 Codex"
+              },
+              {
+                "label": "排队",
+                "description": "当前任务之后处理"
+              }
+            ]
+          },
+          {
+            "id": "details",
+            "header": "",
+            "question": "补充内容",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:16",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "onboarding",
+        "method": "item/tool/call",
+        "params": {
+          "tool": "request_onboarding_input",
+          "arguments": {
+            "questions": [
+              {
+                "id": "choice",
+                "header": "选项",
+                "question": "使用哪种方式？",
+                "options": [
+                  {
+                    "label": "直接发送",
+                    "description": "立即交给 Codex"
+                  },
+                  {
+                    "label": "排队",
+                    "description": "当前任务之后处理"
+                  }
+                ]
+              },
+              {
+                "id": "details",
+                "question": "补充内容",
+                "options": null
+              }
+            ]
+          }
+        }
+      },
+      {
+        "skip": true,
+        "decision": "accept",
+        "action": "accept"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:17",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "command",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "command": "git status",
+          "reason": "检查更改"
+        }
+      },
+      {
+        "decision": "accept"
+      }
+    ],
+    "expected": {
+      "decision": "accept"
+    }
+  },
+  {
+    "source": "interactions:18",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "command",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "command": "git status",
+          "reason": "检查更改"
+        }
+      },
+      {
+        "decision": "always"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:19",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "permission",
+        "method": "item/permissions/requestApproval",
+        "params": {
+          "permissions": {
+            "fileSystem": {
+              "read": [
+                "D:/project"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "decision": "accept",
+        "permissions": {
+          "fileSystem": {
+            "write": [
+              "/"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": {
+      "permissions": {
+        "fileSystem": {
+          "read": [
+            "D:/project"
+          ]
+        }
+      },
+      "scope": "turn"
+    }
+  },
+  {
+    "source": "interactions:20",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "permission",
+        "method": "item/permissions/requestApproval",
+        "params": {
+          "permissions": {
+            "fileSystem": {
+              "read": [
+                "D:/project"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "decision": "decline"
+      }
+    ],
+    "expected": {
+      "permissions": {},
+      "scope": "turn"
+    }
+  },
+  {
+    "source": "interactions:21",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "form",
+          "method": "mcpServer/elicitation/request",
+          "params": {
+            "mode": "form",
+            "serverName": "example",
+            "requestedSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "large"
+                  ]
+                },
+                "approved": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "count",
+                "mode",
+                "approved"
+              ]
+            }
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "form",
+        "kind": "form",
+        "title": "Codex 需要你确认",
+        "message": "",
+        "replySupported": true,
+        "server": "example",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "label": "name",
+            "description": "",
+            "required": true
+          },
+          {
+            "name": "count",
+            "type": "integer",
+            "label": "count",
+            "description": "",
+            "required": true,
+            "minimum": 1
+          },
+          {
+            "name": "mode",
+            "type": "string",
+            "label": "mode",
+            "description": "",
+            "required": true,
+            "options": [
+              "small",
+              "large"
+            ]
+          },
+          {
+            "name": "approved",
+            "type": "boolean",
+            "label": "approved",
+            "description": "",
+            "required": true
+          }
+        ],
+        "detail": ""
+      }
+    ]
+  },
+  {
+    "source": "interactions:22",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "accept",
+        "content": {
+          "name": "测试",
+          "count": 2,
+          "mode": "small",
+          "approved": false
+        }
+      }
+    ],
+    "expected": {
+      "action": "accept",
+      "content": {
+        "name": "测试",
+        "count": 2,
+        "mode": "small",
+        "approved": false
+      },
+      "_meta": null
+    }
+  },
+  {
+    "source": "interactions:23",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "accept",
+        "content": {
+          "name": "测试",
+          "count": 0,
+          "mode": "small",
+          "approved": false
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:24",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "accept",
+        "content": {
+          "name": "测试",
+          "count": 2,
+          "mode": "unknown",
+          "approved": false
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:25",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "accept",
+        "content": {
+          "name": "测试",
+          "count": 2,
+          "mode": "small",
+          "approved": "true"
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:26",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "accept",
+        "content": {
+          "name": "",
+          "count": 2,
+          "mode": "small",
+          "approved": false
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:27",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "form",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "form",
+          "serverName": "example",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "large"
+                ]
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "count",
+              "mode",
+              "approved"
+            ]
+          }
+        }
+      },
+      {
+        "action": "decline"
+      }
+    ],
+    "expected": {
+      "action": "decline",
+      "content": null,
+      "_meta": null
+    }
+  },
+  {
+    "source": "interactions:28",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "picker",
+          "method": "item/tool/requestOptionPicker",
+          "params": {
+            "question": "请选择",
+            "options": [
+              {
+                "label": "A"
+              }
+            ]
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "picker",
+        "kind": "desktop",
+        "title": "Codex 需要你选择",
+        "message": "请选择",
+        "replySupported": false,
+        "detail": "A",
+        "desktopMessage": "请在电脑上的 Codex 完成此选择。"
+      }
+    ]
+  },
+  {
+    "source": "interactions:29",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "picker",
+        "method": "item/tool/requestOptionPicker",
+        "params": {
+          "question": "请选择",
+          "options": [
+            {
+              "label": "A"
+            }
+          ]
+        }
+      },
+      {
+        "action": "accept"
+      }
+    ],
+    "error": {
+      "status": 422
+    }
+  },
+  {
+    "source": "interactions:30",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "verification",
+          "method": "mcpServer/elicitation/request",
+          "params": {
+            "mode": "openai/userVerification",
+            "challenge": "private-challenge"
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "verification",
+        "kind": "form",
+        "title": "Codex 需要你确认",
+        "message": "",
+        "replySupported": false,
+        "server": "",
+        "fields": [],
+        "detail": "",
+        "desktopMessage": "请在电脑上的 Codex 完成此授权或验证。"
+      }
+    ]
+  },
+  {
+    "source": "interactions:31",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "verification",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "mode": "openai/userVerification",
+          "challenge": "private-challenge"
+        }
+      },
+      {
+        "action": "accept"
+      }
+    ],
+    "error": {
+      "status": 422
+    }
+  },
+  {
+    "source": "interactions:32",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": "onboarding",
+          "method": "item/tool/call",
+          "params": {
+            "tool": "request_onboarding_input",
+            "arguments": {
+              "questions": [
+                {
+                  "id": "choice",
+                  "header": "选项",
+                  "question": "使用哪种方式？",
+                  "options": [
+                    {
+                      "label": "直接发送",
+                      "description": "立即交给 Codex"
+                    },
+                    {
+                      "label": "排队",
+                      "description": "当前任务之后处理"
+                    }
+                  ]
+                },
+                {
+                  "id": "details",
+                  "question": "补充内容",
+                  "options": null
+                }
+              ]
+            }
+          }
+        }
+      ],
+      []
+    ],
+    "expected": [
+      {
+        "id": "onboarding",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "questions": [
+          {
+            "id": "choice",
+            "header": "选项",
+            "question": "使用哪种方式？",
+            "secret": false,
+            "options": [
+              {
+                "label": "直接发送",
+                "description": "立即交给 Codex"
+              },
+              {
+                "label": "排队",
+                "description": "当前任务之后处理"
+              }
+            ]
+          },
+          {
+            "id": "details",
+            "header": "",
+            "question": "补充内容",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:33",
+    "name": "appServerReply",
+    "args": [
+      {
+        "id": "onboarding",
+        "method": "item/tool/call",
+        "params": {
+          "tool": "request_onboarding_input",
+          "arguments": {
+            "questions": [
+              {
+                "id": "choice",
+                "header": "选项",
+                "question": "使用哪种方式？",
+                "options": [
+                  {
+                    "label": "直接发送",
+                    "description": "立即交给 Codex"
+                  },
+                  {
+                    "label": "排队",
+                    "description": "当前任务之后处理"
+                  }
+                ]
+              },
+              {
+                "id": "details",
+                "question": "补充内容",
+                "options": null
+              }
+            ]
+          }
+        }
+      },
+      {
+        "answers": {
+          "choice": [
+            "直接发送"
+          ],
+          "details": [
+            "补充"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "success": true,
+      "contentItems": [
+        {
+          "type": "inputText",
+          "text": "{\"answers\":{\"choice\":{\"answers\":[\"直接发送\"]},\"details\":{\"answers\":[\"补充\"]}}}"
+        }
+      ]
+    }
+  },
+  {
+    "source": "interactions:34",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "question-turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-one",
+          "status": "completed",
+          "items": []
+        },
+        {
+          "id": "later-two",
+          "status": "completed",
+          "items": [
+            {
+              "id": "ordinary",
+              "type": "agentMessage",
+              "text": "普通回复"
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "question-turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",0]",
+            "header": "",
+            "question": "先检查哪一端？",
+            "secret": false,
+            "options": [
+              {
+                "label": "手机",
+                "description": ""
+              },
+              {
+                "label": "电脑",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:35",
+    "name": "pendingInteractions",
+    "args": [
+      [
+        {
+          "id": 7,
+          "method": "item/tool/requestUserInput",
+          "params": {
+            "threadId": "thread",
+            "turnId": "turn",
+            "questions": [
+              {
+                "id": "choice",
+                "header": "选项",
+                "question": "使用哪种方式？",
+                "options": [
+                  {
+                    "label": "直接发送",
+                    "description": "立即交给 Codex"
+                  },
+                  {
+                    "label": "排队",
+                    "description": "当前任务之后处理"
+                  }
+                ]
+              },
+              {
+                "id": "details",
+                "question": "补充内容",
+                "options": null
+              }
+            ]
+          }
+        }
+      ],
+      [
+        {
+          "id": "question-turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-one",
+          "status": "completed",
+          "items": []
+        },
+        {
+          "id": "later-two",
+          "status": "completed",
+          "items": [
+            {
+              "id": "ordinary",
+              "type": "agentMessage",
+              "text": "普通回复"
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "7",
+        "turnId": "turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "choice",
+            "header": "选项",
+            "question": "使用哪种方式？",
+            "secret": false,
+            "options": [
+              {
+                "label": "直接发送",
+                "description": "立即交给 Codex"
+              },
+              {
+                "label": "排队",
+                "description": "当前任务之后处理"
+              }
+            ]
+          },
+          {
+            "id": "details",
+            "header": "",
+            "question": "补充内容",
+            "secret": false,
+            "options": []
+          }
+        ]
+      },
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "question-turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",0]",
+            "header": "",
+            "question": "先检查哪一端？",
+            "secret": false,
+            "options": [
+              {
+                "label": "手机",
+                "description": ""
+              },
+              {
+                "label": "电脑",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:36",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "question-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "first-answer",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "steering",
+              "type": "steeringUserMessage",
+              "status": "pending",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "question-turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:37",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "question-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "first-answer",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "steering",
+              "type": "steeringUserMessage",
+              "status": "accepted",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": []
+  },
+  {
+    "source": "interactions:38",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "question-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "first-answer",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "steering",
+              "type": "steeringUserMessage",
+              "status": "pending",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ],
+              "steerAcknowledged": true
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": []
+  },
+  {
+    "source": "interactions:39",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "question-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "first-answer",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "later-turn",
+          "status": "inProgress",
+          "items": [
+            {
+              "id": "steering",
+              "type": "steeringUserMessage",
+              "status": "pending",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ],
+              "steerAcknowledged": true
+            },
+            {
+              "id": "server-echo",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "old-echo",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": []
+  },
+  {
+    "source": "interactions:40",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "older",
+          "status": "completed",
+          "items": [
+            {
+              "id": "too-early",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "question-turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "ordinary",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "手机"
+                }
+              ]
+            },
+            {
+              "id": "code",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "```\n<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>\n```"
+                }
+              ]
+            },
+            {
+              "id": "malformed",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":null}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "unknown",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"another-question\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "question-turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",0]",
+            "header": "",
+            "question": "先检查哪一端？",
+            "secret": false,
+            "options": [
+              {
+                "label": "手机",
+                "description": ""
+              },
+              {
+                "label": "电脑",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:41",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "older",
+          "status": "completed",
+          "items": [
+            {
+              "id": "too-early",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "question-turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "ordinary",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "手机"
+                }
+              ]
+            },
+            {
+              "id": "code",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "```\n<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>\n```"
+                }
+              ]
+            },
+            {
+              "id": "malformed",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":null}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "unknown",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"another-question\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "with-context",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "# Files mentioned by the user:\nfile.txt\n## My request:\n<send_user_message_question_reply>\n{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "question-turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:42",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "older",
+          "status": "completed",
+          "items": [
+            {
+              "id": "too-early",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "question-turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "ordinary",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "手机"
+                }
+              ]
+            },
+            {
+              "id": "code",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "```\n<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>\n```"
+                }
+              ]
+            },
+            {
+              "id": "malformed",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":null}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "unknown",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"another-question\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            },
+            {
+              "id": "with-context",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "# Files mentioned by the user:\nfile.txt\n## My request:\n<send_user_message_question_reply>\n{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": []
+  },
+  {
+    "source": "interactions:43",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",0]",
+            "header": "",
+            "question": "先检查哪一端？",
+            "secret": false,
+            "options": [
+              {
+                "label": "手机",
+                "description": ""
+              },
+              {
+                "label": "电脑",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:44",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ],
+          "[\"request_user_input_async\",\"async-item\",1]": [
+            "  保留现有行为\n和换行  "
+          ]
+        }
+      }
+    ],
+    "expected": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"},{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\\n和换行\"}]\n</send_user_message_question_reply>"
+  },
+  {
+    "source": "interactions:45",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "skip": true
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:46",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {}
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:47",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ],
+          "[\"request_user_input_async\",\"async-item\",1]": [
+            "  保留现有行为\n和换行  "
+          ],
+          "unknown": [
+            "内容"
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:48",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机",
+            "电脑"
+          ],
+          "[\"request_user_input_async\",\"async-item\",1]": [
+            "  保留现有行为\n和换行  "
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:49",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            },
+            {
+              "id": "finished",
+              "type": "userMessage",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"},{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",1]\",\"question\":\"需要保留什么？\",\"answer\":\"保留现有行为\"}]\n</send_user_message_question_reply>"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ],
+          "[\"request_user_input_async\",\"async-item\",1]": [
+            "  保留现有行为\n和换行  "
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 409
+    }
+  },
+  {
+    "source": "interactions:50",
+    "name": "pendingInteractions",
+    "args": [
+      [],
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "expected": [
+      {
+        "id": "[\"request_user_input_async\",\"async-item\"]",
+        "source": "async-message",
+        "turnId": "turn",
+        "kind": "questions",
+        "title": "Codex 需要你回复",
+        "message": "",
+        "replySupported": true,
+        "skipSupported": true,
+        "questions": [
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",0]",
+            "header": "",
+            "question": "先检查哪一端？",
+            "secret": false,
+            "options": [
+              {
+                "label": "手机",
+                "description": ""
+              },
+              {
+                "label": "电脑",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "id": "[\"request_user_input_async\",\"async-item\",1]",
+            "header": "",
+            "question": "需要保留什么？",
+            "secret": false,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "source": "interactions:51",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ]
+        },
+        "skipped": [
+          "[\"request_user_input_async\",\"async-item\",1]"
+        ]
+      }
+    ],
+    "expected": "<send_user_message_question_reply>\n[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"async-item\\\",0]\",\"question\":\"先检查哪一端？\",\"answer\":\"手机\"}]\n</send_user_message_question_reply>"
+  },
+  {
+    "source": "interactions:52",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ]
+        }
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:53",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ]
+        },
+        "skipped": [
+          "unknown-question"
+        ]
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:54",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ]
+        },
+        "skipped": "[\"request_user_input_async\",\"async-item\",1]"
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:55",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ]
+        },
+        "skipped": [
+          "[\"request_user_input_async\",\"async-item\",0]"
+        ]
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:56",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {
+          "[\"request_user_input_async\",\"async-item\",0]": [
+            "手机"
+          ],
+          "[\"request_user_input_async\",\"async-item\",1]": [
+            "同时作答"
+          ]
+        },
+        "skipped": [
+          "[\"request_user_input_async\",\"async-item\",1]"
+        ]
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "interactions:57",
+    "name": "asyncReply",
+    "args": [
+      [
+        {
+          "id": "turn",
+          "status": "completed",
+          "items": [
+            {
+              "id": "async-item",
+              "type": "agentMessage",
+              "text": "",
+              "questions": [
+                {
+                  "title": "先检查哪一端？",
+                  "options": [
+                    "手机",
+                    "电脑"
+                  ]
+                },
+                {
+                  "title": "需要保留什么？",
+                  "options": []
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "[\"request_user_input_async\",\"async-item\"]",
+      {
+        "answers": {},
+        "skipped": [
+          "[\"request_user_input_async\",\"async-item\",0]",
+          "[\"request_user_input_async\",\"async-item\",1]"
+        ]
+      }
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "permission-settings:0",
+    "name": "permissionSettings",
+    "args": [
+      "full-access"
+    ],
+    "expected": {
+      "permissions": ":danger-full-access",
+      "approvalPolicy": "never",
+      "approvalsReviewer": "user"
+    }
+  },
+  {
+    "source": "permission-settings:1",
+    "name": "permissionSettings",
+    "args": [
+      "workspace-write"
+    ],
+    "expected": {
+      "permissions": ":workspace",
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "user"
+    }
+  },
+  {
+    "source": "permission-settings:2",
+    "name": "permissionSettings",
+    "args": [
+      "read-only"
+    ],
+    "expected": {
+      "permissions": ":read-only",
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "user"
+    }
+  },
+  {
+    "source": "permission-settings:3",
+    "name": "permissionSettings",
+    "args": [
+      "invalid"
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "permission-settings:4",
+    "name": "permissionSettings",
+    "args": [
+      "__proto__"
+    ],
+    "error": {
+      "status": 400
+    }
+  },
+  {
+    "source": "permission-settings:5",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "activePermissionProfile": {
+          "id": ":danger-full-access"
+        },
+        "sandboxPolicy": {
+          "type": "dangerFullAccess"
+        },
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user",
+        "permissions": ":read-only"
+      }
+    ],
+    "expected": {
+      "mode": "read-only",
+      "profile": ":read-only",
+      "sandboxType": "readOnly"
+    }
+  },
+  {
+    "source": "permission-settings:8",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "activePermissionProfile": {
+          "id": "team-policy"
+        },
+        "sandboxPolicy": {
+          "type": "workspaceWrite"
+        }
+      }
+    ],
+    "expected": {
+      "mode": "custom",
+      "profile": "team-policy",
+      "sandboxType": "workspaceWrite"
+    }
+  },
+  {
+    "source": "permission-settings:9",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "activePermissionProfile": {
+          "id": ":workspace"
+        },
+        "sandboxPolicy": {
+          "type": "workspaceWrite"
+        },
+        "approvalsReviewer": "guardian_subagent"
+      }
+    ],
+    "expected": {
+      "mode": "custom",
+      "profile": ":workspace",
+      "sandboxType": "workspaceWrite"
+    }
+  },
+  {
+    "source": "permission-settings:10",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "sandboxPolicy": {
+          "type": "workspaceWrite"
+        }
+      }
+    ],
+    "expected": {
+      "mode": "workspace-write",
+      "profile": null,
+      "sandboxType": "workspaceWrite"
+    }
+  },
+  {
+    "source": "permission-settings:11",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "activePermissionProfile": {
+          "id": ":workspace"
+        },
+        "sandboxPolicy": {
+          "type": "dangerFullAccess"
+        },
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user"
+      }
+    ],
+    "expected": {
+      "mode": "workspace-write",
+      "profile": ":workspace",
+      "sandboxType": "workspaceWrite"
+    }
+  },
+  {
+    "source": "permission-settings:12",
+    "name": "readPermissionSettings",
+    "args": [
+      {
+        "activePermissionProfile": {
+          "id": ":danger-full-access"
+        },
+        "sandboxPolicy": {
+          "type": "dangerFullAccess"
+        },
+        "approvalPolicy": "never"
+      }
+    ],
+    "expected": {
+      "mode": "full-access",
+      "profile": ":danger-full-access",
+      "sandboxType": "dangerFullAccess"
+    }
+  },
+  {
+    "source": "stream:0",
+    "name": "textAppend",
+    "args": [
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂",
+        "phase": "commentary"
+      },
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂\n新增🙂",
+        "phase": "commentary"
+      }
+    ],
+    "expected": {
+      "itemId": "answer",
+      "offset": 1200,
+      "text": "\n新增🙂"
+    }
+  },
+  {
+    "source": "stream:1",
+    "name": "textAppend",
+    "args": [
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂",
+        "phase": "commentary"
+      },
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "替换中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂\n新增🙂",
+        "phase": "commentary"
+      }
+    ],
+    "expected": null
+  },
+  {
+    "source": "stream:2",
+    "name": "textAppend",
+    "args": [
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂",
+        "phase": "commentary"
+      },
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂\n新增🙂",
+        "phase": "final_answer"
+      }
+    ],
+    "expected": null
+  },
+  {
+    "source": "stream:3",
+    "name": "textAppend",
+    "args": [
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂",
+        "phase": "commentary"
+      },
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文🙂中文",
+        "phase": "commentary"
+      }
+    ],
+    "expected": null
+  },
+  {
+    "source": "stream:4",
+    "name": "textAppend",
+    "args": [
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "短",
+        "phase": "commentary"
+      },
+      {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "短回复",
+        "phase": "commentary"
+      }
+    ],
+    "expected": null
+  },
+  {
+    "source": "stream:5",
+    "name": "summarizeItem",
+    "args": [
+      {
+        "id": "files",
+        "type": "fileChange",
+        "changes": [
+          {
+            "path": "new.md",
+            "kind": {
+              "type": "add"
+            },
+            "diff": "第一行\n\n第三行\n"
+          },
+          {
+            "path": "old.md",
+            "kind": {
+              "type": "delete"
+            },
+            "diff": "第一行\n第二行\n"
+          },
+          {
+            "path": "app.vue",
+            "kind": {
+              "type": "update"
+            },
+            "diff": {
+              "text": "--- a/app.vue\n+++ b/app.vue\n@@ -1,2 +1,3 @@\n-旧行\n+新行\n+另一行\n 上下文\n"
+            }
+          },
+          {
+            "path": "pending.md",
+            "kind": {
+              "type": "update"
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "id": "files",
+      "type": "fileChange",
+      "changes": [
+        {
+          "path": "new.md",
+          "kind": {
+            "type": "add"
+          },
+          "additions": 3,
+          "deletions": 0
+        },
+        {
+          "path": "old.md",
+          "kind": {
+            "type": "delete"
+          },
+          "additions": 0,
+          "deletions": 2
+        },
+        {
+          "path": "app.vue",
+          "kind": {
+            "type": "update"
+          },
+          "additions": 2,
+          "deletions": 1
+        },
+        {
+          "path": "pending.md",
+          "kind": {
+            "type": "update"
+          }
+        }
+      ],
+      "detailsAvailable": true,
+      "detailVersion": "f5b7d07e6e0c1708"
+    }
+  },
+  {
+    "source": "stream:6",
+    "name": "summarizeItem",
+    "args": [
+      {
+        "id": "spawn",
+        "type": "subAgentActivity",
+        "kind": "started",
+        "agentThreadId": "child",
+        "agentPath": "/root/research",
+        "model": "model-a",
+        "reasoningEffort": "high"
+      }
+    ],
+    "expected": {
+      "id": "spawn",
+      "type": "subAgentActivity",
+      "kind": "started",
+      "agentThreadId": "child",
+      "agentPath": "/root/research",
+      "model": "model-a",
+      "reasoningEffort": "high",
+      "detailsAvailable": true,
+      "detailVersion": "f2676cf2e30dbb74"
+    }
+  },
+  {
+    "source": "stream:7",
+    "name": "summarizeItem",
+    "args": [
+      {
+        "id": "spawn",
+        "type": "subAgentActivity",
+        "kind": "completed",
+        "agentThreadId": "child",
+        "agentPath": "/root/research",
+        "model": "model-a",
+        "reasoningEffort": "high"
+      }
+    ],
+    "expected": {
+      "id": "spawn",
+      "type": "subAgentActivity",
+      "kind": "completed",
+      "agentThreadId": "child",
+      "agentPath": "/root/research",
+      "model": "model-a",
+      "reasoningEffort": "high",
+      "detailsAvailable": true,
+      "detailVersion": "16934c16d74f1acc"
+    }
+  },
+  {
+    "source": "stream:8",
+    "name": "summarizeItem",
+    "args": [
+      {
+        "id": "wait",
+        "type": "collabAgentToolCall",
+        "tool": "wait",
+        "status": "completed",
+        "receiverThreadIds": [
+          "child"
+        ],
+        "agentsStates": {
+          "child": {
+            "status": "completed",
+            "message": "完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果完整结果"
+          }
+        }
+      }
+    ],
+    "expected": {
+      "id": "wait",
+      "type": "collabAgentToolCall",
+      "status": "completed",
+      "tool": "wait",
+      "receiverThreadIds": [
+        "child"
+      ],
+      "detailsAvailable": true,
+      "detailVersion": "b308f08e893146ad"
+    }
+  }
+]

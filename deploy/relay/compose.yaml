@@ -1,0 +1,35 @@
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+      target: relay
+    restart: unless-stopped
+    environment:
+      CODEX_MOBILE_RELAY_BIND: 0.0.0.0:8080
+      CODEX_MOBILE_WEB_ORIGIN: https://${CODEX_MOBILE_DOMAIN:?Set CODEX_MOBILE_DOMAIN}
+    volumes:
+      - relay-data:/data
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      - relay
+    environment:
+      CODEX_MOBILE_DOMAIN: ${CODEX_MOBILE_DOMAIN:?Set CODEX_MOBILE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:

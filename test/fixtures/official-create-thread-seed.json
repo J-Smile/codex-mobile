@@ -1,0 +1,9 @@
+{
+  "type": "functionCallOutput",
+  "id": "fco_00000000-0000-4000-8000-000000000001",
+  "name": "create_thread",
+  "namespace": "codex_app",
+  "output": "<codex_delegation>\n  <source_thread_id>00000000-0000-4000-8000-000000000002</source_thread_id>\n  <input>Codex Mobile Rust HTTP isolated settings and queue test. Reply only READY. Do not call any tools.</input>\n</codex_delegation>",
+  "startedAtMs": 1704067200000,
+  "completedAtMs": 1704067200000
+}

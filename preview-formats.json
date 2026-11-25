@@ -1,0 +1,9 @@
+{
+  "html": ["html", "htm", "xhtml"],
+  "markdown": ["md", "markdown", "mdx"],
+  "text": ["txt", "log", "adoc", "csv", "tsv", "json", "jsonl", "jsonc", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "env", "properties", "css", "scss", "sass", "less", "js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte", "astro", "rs", "go", "py", "pyi", "rb", "php", "java", "kt", "kts", "swift", "c", "h", "cpp", "hpp", "cc", "cs", "scala", "sql", "sh", "bash", "zsh", "ps1", "cmd", "bat", "diff", "patch", "ipynb", "mermaid", "mmd", "typ", "tex", "bib", "dockerfile", "makefile", "gitignore", "editorconfig"],
+  "image": ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "apng", "svg"],
+  "audio": ["mp3", "m4a", "wav", "flac", "aac", "oga", "ogg", "opus", "weba"],
+  "video": ["mp4", "m4v", "mov", "webm", "ogv"],
+  "disabled": ["pdf", "doc", "docx", "docm", "dot", "dotx", "dotm", "rtf", "odt", "xls", "xlsx", "xlsm", "xlsb", "xlt", "xltx", "xltm", "ods", "ppt", "pptx", "pptm", "pps", "ppsx", "ppsm", "pot", "potx", "potm", "odp"]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "codex-mobile",
+  "version": "0.3.25",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/native.mjs dev",
+    "build": "node scripts/docker-build.mjs build",
+    "build:web": "npm run build:mobile && npm run build:desktop",
+    "build:mobile": "vue-tsc --noEmit -p mobile/tsconfig.json && vite build --config mobile/vite.config.ts",
+    "build:desktop": "tsc -p desktop/tsconfig.json && vite build --config desktop/vite.config.ts",
+    "dev:desktop": "vite --config desktop/vite.config.ts",
+    "dev:mobile": "vite --config mobile/vite.config.ts --host 127.0.0.1",
+    "start": "node scripts/native.mjs dev",
+    "launch": "node scripts/native.mjs dev",
+    "start:bridge": "node scripts/native.mjs bridge",
+    "build:native": "node scripts/native.mjs build",
+    "package": "node scripts/native.mjs package",
+    "release:version": "node scripts/release-version.mjs",
+    "release:check": "node scripts/release-version.mjs",
+    "check:native": "node scripts/native.mjs check",
+    "typecheck": "vue-tsc --noEmit -p mobile/tsconfig.json && tsc -p desktop/tsconfig.json",
+    "test": "node scripts/docker-build.mjs test",
+    "test:native": "npm run test:web && npm run test:rust",
+    "test:web": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.mjs\"",
+    "test:rust": "node scripts/native.mjs test",
+    "test:relay": "node scripts/native.mjs test-relay"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@simplewebauthn/browser": "14.0.0",
+    "dompurify": "^3.2.7",
+    "md-editor-v3": "^6.4.0",
+    "motion-v": "^2.13.0",
+    "noise-handshake": "4.2.1",
+    "qr-scanner": "^1.4.2",
+    "qrcode": "^1.5.4",
+    "qrcode.vue": "^3.6.0",
+    "smol-toml": "^1.9.1",
+    "sodium-javascript": "0.8.0",
+    "vue": "^3.5.14"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "~2.11.1",
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.1.10"
+  }
+}

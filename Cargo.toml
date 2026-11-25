@@ -1,0 +1,21 @@
+[workspace]
+members = ["crates/bridge", "crates/relay", "src-tauri"]
+default-members = ["crates/bridge"]
+resolver = "2"
+
+[workspace.package]
+version = "0.3.25"
+edition = "2021"
+rust-version = "1.90"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
