@@ -1,6 +1,6 @@
 # Codex Mobile
 
-通过手机阅读官方 Codex 本机聊天、发送文字、创建聊天和查看用量。从 v0.3.21 起，Windows 版通过官方桌面原生入口支持手机文字发送和新建聊天。电脑端为 Tauri 2 应用，Rust 提供连接、历史、通知、用量和私有更新，手机网页使用 Vue。
+通过手机阅读官方 Codex 本机聊天、发送文字、创建聊天和查看用量。从 v0.3.21 起，Windows 版通过官方桌面原生入口支持手机文字发送和新建聊天。电脑端为 Tauri 2 应用，Rust 提供连接、历史、通知、用量和版本更新，手机网页使用 Vue。
 
 ## 启动
 
@@ -8,7 +8,7 @@
 
 ### 使用桌面安装包
 
-从私有仓库的 [GitHub Releases](https://github.com/J-Smile/codex-mobile/releases) 下载对应版本：
+仓库公开后，源码与已发布的安装包均可直接访问。从 [GitHub Releases](https://github.com/J-Smile/codex-mobile/releases) 下载对应版本：
 
 | 平台 | 安装方式 | 免安装方式 |
 | --- | --- | --- |
@@ -25,9 +25,9 @@
 
 打开 Codex Mobile 后可启动手机服务并读取已保存历史。有官方桌面保存的本机项目时，手机「全部项目」会按原有项目归属展示聊天。Windows 版连接当前官方桌面 App Tools 通道后开放文字控制；连接失败仍保留历史与草稿，不把网页在线当成官方同步就绪。“重新连接”复用原生探测，不新建或借用控制聊天。“打开 Codex”使用官方原始启动路径，不注入 FORCE_CLI，不接管旧运行时，不清理正在执行的任务。状态查询不会启动官方桌面或创建聊天。
 
-### 私有仓库更新
+### 软件更新
 
-在桌面“设置 → 软件更新 → 更新来源”或手机“设置 → 在线升级”中配置 GitHub token。生成 fine-grained personal access token，仅选择 J-Smile/codex-mobile 仓库，并授予 Contents: read。验证成功后保存在本机；界面不回显已保存的 token，浏览器也不持久化它。
+当前内置更新器仍需要 GitHub token。在桌面“设置 → 软件更新 → 更新来源”或手机“设置 → 在线升级”中配置。生成 fine-grained personal access token，仅选择 J-Smile/codex-mobile 仓库，并授予 Contents: read。验证成功后保存在本机；界面不回显已保存的 token，浏览器也不持久化它。仓库重建后，原来绑定旧仓库的 token 需要重新选择新仓库；手动下载公开的 Release 不需要 token。
 
 手机“设置 → 在线升级”同时显示运行中的 Codex Mobile 版本和当前官方连接的版本。App Server 版本来自连接握手；原生 App Tools 没有提供版本时显示“版本未知”，不冒充 App Server 版本。断开时显示“未连接”，重新打开面板会读取最新状态。
 
@@ -210,17 +210,17 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 [GitHub Actions](https://github.com/J-Smile/codex-mobile/actions) 在推送版本标签、提交 PR 或手动触发时，使用 Windows x64 与 macOS ARM64 运行器测试并打包。普通构建保存为 Artifacts，保留 7 天；单独推送源码到 main 不重复打安装包。
 
-本机完成首次安装后，后续流程为“提交源码 → GitHub 编译打包 → 私有 Release → 桌面拉取更新”，无需在本地重新编译安装包。
+本机完成首次安装后，后续流程为“提交源码 → GitHub 编译打包 → GitHub Release → 桌面拉取更新”，无需在本地重新编译安装包。
 
 1. 准备新版本时执行 `npm run release:version -- 0.3.20`（示例，实际版本必须高于已发布版本）。这只同步 package.json、npm 锁文件、Cargo.toml、Cargo.lock 与 Tauri 配置中的版本，不运行编译，也不提交或推送代码。
 2. 提交并推送本次源码。在 [Build and release](https://github.com/J-Smile/codex-mobile/actions/workflows/release.yml) 中选择 **Run workflow**，选择包含修改的分支，勾选 **publish** 后运行。两平台测试、打包通过后，工作流以该次提交创建版本标签并发布正式 Release。也可以推送与源码版本一致的标签触发发布。日常发布优先从 `main` 手动运行，默认分支成功打包后保存可供后续版本和标签复用的 Rust 依赖缓存。
-3. 桌面“在线升级”配置此私有仓库的 Contents: read token 后，每 15 分钟检查正式 Release，也可手动检查。发现更高版本后下载 CI 生成的 ZIP、验证 SHA-256，并切换到新版。电脑只下载和运行成品，不执行 npm、Cargo 或 C++ 编译。
+3. 桌面“在线升级”配置此仓库的 Contents: read token 后，每 15 分钟检查正式 Release，也可手动检查。发现更高版本后下载 CI 生成的 ZIP、验证 SHA-256，并切换到新版。电脑只下载和运行成品，不执行 npm、Cargo 或 C++ 编译。
 
 检查后可以展开“版本更新内容”，查看 GitHub Release 的版本号、发布日期与更新说明；已经是最新版时也可查看。手动准备好更新后，“安装 v版本号 并重启”会切换到下载的新版本。
 
 CI 开始时校验所有版本号和发布标签。安装程序、免安装 ZIP 和 SHA-256 文件全部上传完成后，Release 才正式可见。已发布版本不覆盖；需要修复时提高版本号再发布。未勾选 publish 的分支手动构建只生成 Artifacts，桌面不会安装这些构建。
 
-GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。电脑保存的只读 token 仅用于拉取私有 Release；两者用途独立，仓库继续保持私有。
+GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。电脑保存的只读 token 仅用于内置更新器读取 Release；两者用途独立，真实凭据和本机数据不进入公开仓库。
 
 npm run package 只复制桌面程序、Rust 组件、手机构建资源和 README，在隔离数据目录启动包内 Rust HTTP 服务，检查网页资源与认证。个人历史、密钥、浏览器资料和本地配置不进入发布包。CI 的编译与隔离测试不代替 Windows/macOS 桌面和真实手机的实机验收。
 

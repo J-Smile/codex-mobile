@@ -103,7 +103,7 @@ jobs:
           - 精简聊天页的固定同步频率、发送方式、停止、设置和审批说明。
           - 移除默认中转服务器，云连接需填写自己的地址；电脑名称留空时使用通用名称，不再自动读取系统主机名。旧版已保存的地址可在云连接设置中清空。
 
-          运行包无需 Node.js。Windows 使用安装程序或完整 ZIP，macOS 使用 DMG 或完整 ZIP。私有更新需要该仓库的 Contents: read token。
+          运行包无需 Node.js。Windows 使用安装程序或完整 ZIP，macOS 使用 DMG 或完整 ZIP。内置更新器需要该仓库的 Contents: read token。
           EOF
           if [ "$existing" = true ]; then
             gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
