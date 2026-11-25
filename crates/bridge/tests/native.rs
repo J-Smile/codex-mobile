@@ -83,7 +83,9 @@ async fn assert_native_snapshot(mut response: reqwest::Response, thread: &str) {
 async fn official_native_http_send_and_reconnect() {
     let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").expect("明确授权的测试聊天 ID");
     let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
-    let data = artifact.join(format!("service-{}", uuid::Uuid::new_v4()));
+    let data = std::env::var_os("MOBILE_ACCEPTANCE_DATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| artifact.join(format!("service-{}", uuid::Uuid::new_v4())));
     std::fs::create_dir_all(&data).unwrap();
     let paths = Paths {
         codex_home: dirs::home_dir().unwrap().join(".codex"),

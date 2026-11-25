@@ -1,3 +1,8 @@
+export interface MessageModel {
+  model?: string;
+  thinking?: string;
+}
+
 export interface DesktopThread {
   id: string;
   title: string;

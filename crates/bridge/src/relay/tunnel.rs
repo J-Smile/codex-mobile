@@ -341,6 +341,7 @@ struct RequestHead {
     path: String,
     length: usize,
     content_type: Option<String>,
+    contract: Option<String>,
     range: Option<String>,
     file_name: Option<String>,
     #[serde(default)]
@@ -400,6 +401,9 @@ impl Incoming {
             .header("origin", origin);
         if let Some(content_type) = self.head.content_type {
             builder = builder.header("content-type", content_type);
+        }
+        if let Some(contract) = self.head.contract {
+            builder = builder.header("x-codex-mobile-contract", contract);
         }
         if let Some(file_name) = self.head.file_name {
             builder = builder.header("x-file-name", file_name);

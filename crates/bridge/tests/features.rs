@@ -3,7 +3,7 @@ use base64::{
     Engine,
 };
 use codex_mobile_bridge::{
-    config::new_thread_defaults,
+    config::{new_thread_defaults, MessageModel},
     context,
     desktop::Desktop,
     history::History,
@@ -47,6 +47,16 @@ fn existing_images_keep_their_paths_and_native_attachment_format() {
     assert_eq!(fs::read(&paths[0]).unwrap(), bytes);
     let unrelated = json!({"type":"userMessage","content":[{"type":"text","text":format!("[file](<{}>)",temp.path().join("unrelated.png").display())}]});
     assert!(attachment_paths(&unrelated, &images.directory).is_empty());
+    for name in ["create_thread", "send_message_to_thread"] {
+        let delegated = json!({"type":"functionCallOutput","namespace":"codex_app","name":name,
+            "output":format!("<codex_delegation>\n<source_thread_id>source</source_thread_id>\n<input>\n{}\n</input>\n</codex_delegation>", prompt.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))});
+        assert_eq!(attachment_paths(&delegated, &images.directory), paths);
+        let mut unrelated = delegated.clone();
+        unrelated["namespace"] = json!("another_tool");
+        assert!(attachment_paths(&unrelated, &images.directory).is_empty());
+    }
+    assert_eq!(context_prompt("文字", &[]), "文字");
+    assert!(context_prompt("", &attachments).ends_with("请查看这些图片。"));
     let saved = images.save(&bytes, "diagram%20%5B2%5D.png").unwrap();
     assert_eq!(saved["name"], "diagram [2].png");
     assert_eq!(saved["type"], "image/png");
@@ -58,6 +68,39 @@ fn existing_images_keep_their_paths_and_native_attachment_format() {
         images.save(b"<svg></svg>", "image.svg").unwrap_err().status,
         400
     );
+}
+
+#[test]
+fn message_model_omits_defaults_and_rejects_unsupported_input_before_sending() {
+    let efforts = vec!["low".to_string(), "high".to_string()];
+    let mut args = json!({"prompt":"message","threadId":"chat"});
+    let defaults = MessageModel::parse(&json!({}), &efforts).unwrap();
+    assert!(defaults.is_empty());
+    defaults.apply(&mut args);
+    assert_eq!(args, json!({"prompt":"message","threadId":"chat"}));
+    MessageModel::parse(&json!({"thinking":"high"}), &efforts)
+        .unwrap()
+        .apply(&mut args);
+    assert_eq!(args["thinking"], "high");
+    assert!(args.get("model").is_none());
+    let choice = MessageModel::parse(
+        &json!({"model":"model/selected","thinking":"low"}),
+        &efforts,
+    )
+    .unwrap();
+    choice.apply(&mut args);
+    assert_eq!(args["model"], "model/selected");
+    assert_eq!(args["thinking"], "low");
+    for invalid in [
+        json!({"model":null}),
+        json!({"model":"bad model"}),
+        json!({"thinking":"ultra"}),
+        json!({"thinking":2}),
+    ] {
+        let error = MessageModel::parse(&invalid, &efforts).unwrap_err();
+        assert_eq!(error.status, 400);
+        assert_eq!(error.outcome.as_deref(), Some("not-dispatched"));
+    }
 }
 
 #[tokio::test]

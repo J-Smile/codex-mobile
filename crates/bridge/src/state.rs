@@ -59,7 +59,7 @@ pub fn read_permissions(settings: &Value) -> Value {
     result
 }
 
-pub fn chat_creation_input(item: &Value) -> Option<&str> {
+pub fn chat_creation_input(item: &Value) -> Option<std::borrow::Cow<'_, str>> {
     if item["type"] != "functionCallOutput"
         || (item["name"] != "create_thread" && item["name"] != "send_message_to_thread")
         || item["namespace"] != "codex_app"
@@ -82,7 +82,22 @@ pub fn chat_creation_input(item: &Value) -> Option<&str> {
         .trim()
         .strip_prefix("<input>")?
         .strip_suffix("</input>")?;
-    (!input.trim().is_empty()).then_some(input)
+    if input.trim().is_empty() {
+        return None;
+    }
+    // 官方 delegation 按 XML 转义输入；只解码一层，保留用户原有实体文本。
+    Some(if input.contains('&') {
+        std::borrow::Cow::Owned(
+            input
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&"),
+        )
+    } else {
+        std::borrow::Cow::Borrowed(input)
+    })
 }
 
 pub fn summarize_item(item: &Value) -> Value {

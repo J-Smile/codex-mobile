@@ -1,5 +1,6 @@
 use crate::{
     app_server::{AppServerConnection, AppServerEvent},
+    config::MessageModel,
     history::History,
     live::LiveState,
     native_events::RolloutWatch,
@@ -282,6 +283,7 @@ impl Desktop {
         prompt: &str,
         request_id: &str,
         title: Option<&str>,
+        selection: &MessageModel,
     ) -> Result<Value> {
         self.session.require("create")?;
         let projects = self
@@ -301,6 +303,7 @@ impl Desktop {
         if let Some(title) = title {
             args["title"] = json!(title);
         }
+        selection.apply(&mut args);
         let result =
             Self::native_call(&connection, source, "create_thread", args, Some(request_id)).await?;
         let id = result["threadId"]
@@ -837,22 +840,19 @@ impl Desktop {
         prompt: &str,
         message_id: &str,
         images: &[Value],
+        selection: &MessageModel,
     ) -> Result<Value> {
         self.session.require("send")?;
         let connection = self.session.connect().await?;
         if connection.is_native() {
-            if !images.is_empty() {
-                return Err(BridgeError::unavailable(
-                    "原生桌面入口暂不支持图片发送；图片草稿保留。",
-                )
-                .before_send());
-            }
             self.require_route(&connection, id).await?;
+            let mut args = json!({"threadId":id,"hostId":"local","prompt":crate::images::context_prompt(prompt, images)});
+            selection.apply(&mut args);
             let result = Self::native_call(
                 &connection,
                 id,
                 "send_message_to_thread",
-                json!({"threadId":id,"hostId":"local","prompt":prompt}),
+                args,
                 Some(message_id),
             )
             .await?;

@@ -23,7 +23,7 @@ import { mediaUrl } from './relayMedia';
 import { conversationParams, setConversationAddress } from './features/conversation/links';
 import { useBrowserTheme } from './browserChrome';
 import { useAppViewport } from './useAppViewport';
-import type { DesktopThread, HistoryPage, Project, StreamSnapshot, StreamUpdate, Turn } from './types';
+import type { DesktopThread, HistoryPage, MessageModel, Project, StreamSnapshot, StreamUpdate, Turn } from './types';
 import type { PendingInteraction } from './features/conversation/interactions';
 import { subagentTargets, type DelegationRequest } from './features/composer/subagentDelegation';
 import { useMessageQueue, type MessageMode, type QueueSnapshot } from './features/composer/useMessageQueue';
@@ -88,7 +88,7 @@ const {
   authenticated: () => authenticated.value,
   expired: expireConnection,
   capabilities: value => {
-    capabilities.value = selectedId.value ? { ...capabilities.value, create: value.create, native: value.native } : value;
+    capabilities.value = selectedId.value ? { ...capabilities.value, create: value.create, native: value.native, modelSelection: value.modelSelection, images: value.images, imageReferences: value.imageReferences } : value;
   },
 });
 const hasProjects = computed(() => projects.value.length > 0 || !!capabilities.value.catalog);
@@ -99,7 +99,7 @@ const creationProjects = ref<Project[]>([]);
 const creationLoading = ref(false);
 const creationError = ref('');
 const firstTurnPending = ref(false);
-const createdDraft = ref<{threadId:string; key:string; prompt:string} | null>(null);
+const createdDraft = ref<{threadId:string; key:string; prompt:string; images:string[]; selection:MessageModel} | null>(null);
 const navigationOpen = ref(true);
 const usageOpen = ref(false);
 const usagePresented = ref(false);
@@ -171,6 +171,7 @@ watch(notice, (value, _, cleanup) => {
 });
 const pendingMessages = ref<{ threadId: string; requestId: string; prompt: string; images: UploadedImage[]; accepted: boolean }[]>([]);
 const drafts = reactive<Record<string, string>>(readDrafts());
+const modelDrafts = reactive<Record<string, MessageModel>>(readModelDrafts());
 const error = ref('');
 const messageQueue = useMessageQueue({ threadId: () => capabilities.value.queue ? selectedId.value : '', authenticated: () => authenticated.value });
 const { queue: queueState, loading: queueLoading, busy: queueBusy, error: queueError } = messageQueue;
@@ -227,6 +228,13 @@ const draft = computed({
   get: () => drafts[draftKey.value] || '',
   set: (value: string) => { drafts[draftKey.value] = value; },
 });
+const modelSelection = computed({
+  get: () => modelDrafts[draftKey.value] || {},
+  set: (value: MessageModel) => {
+    if (value.model || value.thinking) modelDrafts[draftKey.value] = value;
+    else delete modelDrafts[draftKey.value];
+  },
+});
 const draftParts = computed(() => splitDraftContext(draft.value));
 const draftText = computed({
   get: () => draftParts.value.text,
@@ -257,6 +265,7 @@ function openConversationLink(event: MouseEvent) {
 }
 function preserveBeforeReload() {
   if (!saveDrafts() && Object.values(drafts).some(Boolean)) return false;
+  if (!saveModelDrafts() && Object.keys(modelDrafts).length) return false;
   updateAddress(navigationOpen.value ? '' : selectedId.value);
   return true;
 }
@@ -378,6 +387,22 @@ function saveDrafts() {
   catch { return false; }
 }
 watch(drafts, saveDrafts, { deep: true, flush: 'sync' });
+function readModelDrafts(): Record<string, MessageModel> {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(desktopStorageKey('codex-mobile-model-drafts')) || '{}');
+    return Object.fromEntries(Object.entries(saved).flatMap(([key, value]) => {
+      if (!value || typeof value !== 'object') return [];
+      const { model, thinking } = value as MessageModel;
+      const selection = { ...(typeof model === 'string' && model ? { model } : {}), ...(typeof thinking === 'string' && thinking ? { thinking } : {}) };
+      return Object.keys(selection).length ? [[key, selection]] : [];
+    }));
+  } catch { return {}; }
+}
+function saveModelDrafts() {
+  try { sessionStorage.setItem(desktopStorageKey('codex-mobile-model-drafts'), JSON.stringify(modelDrafts)); return true; }
+  catch { return false; }
+}
+watch(modelDrafts, saveModelDrafts, { deep: true, flush: 'sync' });
 function threadProjectId(thread: DesktopThread) {
   return projects.value.find((project) => project.projectId === thread.projectId)?.projectId || 'other';
 }
@@ -487,7 +512,7 @@ const resumableTurn = computed(() => {
 const composerAction = computed(() => active.value && !hasMessage.value
   ? { kind: 'stop', busy: stopping.value, disabled: !capabilities.value.interrupt || stopping.value || streamStatus.value !== 'connected', label: capabilities.value.interrupt ? '停止任务' : '请在桌面停止' }
   : { kind: 'send', busy: sending.value,
-    disabled: !operationsReady.value || retryMessages.has(draftKey.value) || !(newChat.value ? capabilities.value.create : capabilities.value.send) || unresolvedOperations.value.some(operation => operation.target === draftKey.value) || (!hasMessage.value && !resumableTurn.value) || sending.value || imagesUploading.value || imageErrors.value || (capabilities.value.native && !!draftImages.value.length) || (!newChat.value && streamStatus.value !== 'connected') || voice.busy.value,
+    disabled: !operationsReady.value || retryMessages.has(draftKey.value) || !(newChat.value ? capabilities.value.create : capabilities.value.send) || unresolvedOperations.value.some(operation => operation.target === draftKey.value) || (!hasMessage.value && !resumableTurn.value) || sending.value || imagesUploading.value || imageErrors.value || (!capabilities.value.images && !!draftImages.value.length) || (!newChat.value && streamStatus.value !== 'connected') || voice.busy.value,
     label: sending.value ? '发送中' : !hasMessage.value && resumableTurn.value ? '继续任务' : newChat.value ? '创建对话并发送' : capabilities.value.native && active.value ? '发送追加消息' : active.value || queueState.value?.messages.length ? '加入队列' : '发送消息' });
 const delegationTargets = computed(() => subagentTargets(turns.value.flatMap((turn) => turn.items)));
 const visiblePending = computed(() => pendingMessages.value.filter((message) => message.threadId === selectedId.value));
@@ -510,6 +535,7 @@ async function disconnectBrowser() {
     pendingMessages.value = [];
     loginKey.value = '';
     for (const id of Object.keys(drafts)) delete drafts[id];
+    for (const id of Object.keys(modelDrafts)) delete modelDrafts[id];
     authenticated.value = false;
   } catch (failure) {
     disconnectError.value = (failure as Error).message;
@@ -904,6 +930,8 @@ function applySnapshot(snapshot: StreamSnapshot) {
   if (!firstTurnPending.value && createdDraft.value?.threadId === snapshot.thread.id && snapshot.syncMode === 'desktop-poll') {
     const sent = createdDraft.value;
     if (drafts[sent.key] === sent.prompt) drafts[sent.key] = '';
+    attachments.clear(sent.key, sent.images);
+    if (modelDrafts[sent.key] === sent.selection) delete modelDrafts[sent.key];
     createdDraft.value = null;
   }
   if (snapshot.queue) messageQueue.acceptSnapshot(snapshot.queue, snapshot.thread.id);
@@ -1064,18 +1092,20 @@ async function send() {
     if (resumableTurn.value) await resumeTurn(resumableTurn.value.id);
     return;
   }
-  if (capabilities.value.native && draftImages.value.length) { error.value = '官方原生入口暂只支持文字，图片草稿已保留。'; return; }
+  if (!capabilities.value.images && draftImages.value.length) { error.value = '当前连接暂不支持图片发送，图片草稿已保留。'; return; }
   if (newChat.value) { await createChat(); return; }
   const mode: MessageMode = !capabilities.value.native && (active.value || queueState.value?.messages.length) ? 'queue' : 'now';
   const prompt = draft.value;
   const threadId = selectedId.value;
   const images = attachments.readyImages();
+  const selection = modelSelection.value;
   error.value = '';
   notice.value = '';
   try {
-    await sendMessage(prompt, mode, images);
+    await sendMessage(prompt, mode, images, selection);
     if (drafts[threadId] === prompt) drafts[threadId] = '';
     attachments.clear(threadId, images.map(image => image.id));
+    if (modelDrafts[threadId] === selection) delete modelDrafts[threadId];
     if (selectedId.value === threadId) {
       if (mode === 'queue') notice.value = '已加入待执行';
       await nextTick();
@@ -1084,7 +1114,7 @@ async function send() {
   } catch (failure) { if (selectedId.value === threadId) error.value = (failure as Error).message; }
 }
 
-async function sendMessage(prompt: string, mode: MessageMode, images: UploadedImage[] = []) {
+async function sendMessage(prompt: string, mode: MessageMode, images: UploadedImage[] = [], selection: MessageModel = {}) {
   const threadId = selectedId.value;
   if (!capabilities.value.send || !operationsReady.value) throw new Error('当前无法发送，请在官方 Codex 处理；草稿会保留。');
   const retryMessage = retryMessages.get(threadId);
@@ -1100,7 +1130,7 @@ async function sendMessage(prompt: string, mode: MessageMode, images: UploadedIm
     void scrollBottom(true);
   }
   try {
-    const result = await request<{ queued?: boolean; queue?: QueueSnapshot }>(threadUrl(threadId, 'messages'), { method: 'POST', body: JSON.stringify({ prompt, images: images.map(image => image.id), requestId, mode }), timeoutMs: 65_000 });
+    const result = await request<{ queued?: boolean; queue?: QueueSnapshot }>(threadUrl(threadId, 'messages'), { method: 'POST', body: JSON.stringify({ prompt, images: images.map(image => image.id), requestId, mode, ...selection }), timeoutMs: 65_000 });
     if (result.queue) messageQueue.acceptSnapshot(result.queue, threadId);
     if (result.queued) {
       pendingMessages.value = pendingMessages.value.filter(message => message.requestId !== requestId);
@@ -1214,16 +1244,18 @@ async function createChat() {
   const target = draftKey.value;
   if (retryMessages.has(target)) { error.value = '此前新建结果尚未确认，请先在桌面核对；不会重复创建。'; return; }
   const prompt = draft.value;
+  const images = attachments.readyImages().map(image => image.id);
+  const selection = modelSelection.value;
   const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(value => value.toString(16).padStart(2, '0')).join('');
   retryMessages.set(target, { requestId }); persistRetryMessages();
   pendingSends.add(target); error.value = '';
   try {
     const result = await request<{ threadId: string; firstTurnAccepted: boolean }>('/api/threads', {
-      method:'POST', timeoutMs:65_000, body:JSON.stringify({sourceThreadId:creationSource.value,projectId:selectedProjectId.value,prompt,requestId}),
+      method:'POST', timeoutMs:65_000, body:JSON.stringify({sourceThreadId:creationSource.value,projectId:selectedProjectId.value,prompt,images,requestId,...selection}),
     });
     retryMessages.delete(target); persistRetryMessages();
     // 创建接受不等于首轮已接受：保留草稿，切到正式 ID 后只恢复读取。
-    createdDraft.value = {threadId:result.threadId,key:target,prompt};
+    createdDraft.value = {threadId:result.threadId,key:target,prompt,images,selection};
     openThread({id:result.threadId,title:'新对话'});
     firstTurnPending.value = !result.firstTurnAccepted;
     capabilities.value = {...capabilities.value,send:result.firstTurnAccepted};
@@ -1587,10 +1619,9 @@ onUnmounted(() => {
         <button v-if="goalSummary" v-show="!interactionState.expanded" type="button" class="goal-summary" :disabled="!capabilities.goals" :aria-label="'查看目标：' + goalSummary.objective" @click="openGoal"><Aim /><span><strong>{{ goalSummary.objective }}</strong><small>{{ goalStatusLabels[goalSummary.status] }} · {{ goalSummary.tokensUsed.toLocaleString('zh-CN') }} Token<template v-if="goalSummary.tokenBudget !== null"> / {{ goalSummary.tokenBudget.toLocaleString('zh-CN') }}</template></small></span><ArrowRight /></button>
         <p v-if="firstTurnPending" class="muted small" role="status">聊天已创建，等待官方首轮确认；不会重复创建。</p>
         <p v-else-if="selectedId && !capabilities.send" class="muted small" role="status">当前仅供阅读，草稿会保留。</p>
-        <p v-else-if="capabilities.native && (newChat || draftImages.length)" class="muted small" role="status">
-          <template v-if="newChat">沿用桌面默认模型与强度。</template>
-          <template v-if="draftImages.length">图片草稿保留，暂不能发送图片。</template>
-        </p>
+        <p v-else-if="draftImages.length && capabilities.imageReferences" class="muted small" role="status">图片上传到电脑后，通过文件引用交给 Codex 读取。</p>
+        <p v-else-if="draftImages.length && !capabilities.images" class="muted small" role="status">当前连接暂不支持图片发送，图片草稿已保留。</p>
+        <p v-if="modelSelection.model || modelSelection.thinking" class="muted small" role="status">已选择下次发送的模型选项；发送后由桌面确认。</p>
         <MessageQueue v-if="selectedId && capabilities.queue" :key="selectedId" :queue="queueState" :loading="queueLoading" :busy="queueBusy" :error="queueError" :actions="messageQueue" :compact="interactionState.expanded" :disabled="!capabilities.queue || sending || streamStatus !== 'connected'" @reload="messageQueue.reload" @expand="pendingPanel?.minimize()" />
         <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :disabled="!capabilities.interactions || streamStatus !== 'connected'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
         <Transition name="composer-notice">
@@ -1617,17 +1648,17 @@ onUnmounted(() => {
               </TransitionGroup>
             </ImagePreview>
             <div v-if="draftParts.contexts.length" class="composer-contexts" aria-label="已添加的上下文"><span v-for="entry in draftParts.contexts" :key="entry.mention" class="composer-context"><span>{{ entry.label }}</span><button type="button" :aria-label="'移除 ' + entry.label" @click="removeContext(entry.mention)"><Close /></button></span></div>
-            <PlainTextInput :key="draftKey" ref="composer" v-model="draftText" class="composer-input" multiline :placeholder="!capabilities.send ? '记录草稿（当前仅供阅读）' : newChat ? '描述任务…' : '发送消息'" aria-label="消息内容" @click="voice.clear(); composer?.focus()" @focus="voice.clear" @beforeinput="voice.clear" @compositionstart="voice.clear" @paste="pasteImages" @input="onComposerInput" @keydown="onKeydown" />
+            <PlainTextInput :key="draftKey" ref="composer" v-model="draftText" class="composer-input" multiline :placeholder="!(newChat ? capabilities.create : capabilities.send) ? '记录草稿（当前仅供阅读）' : newChat ? '描述任务…' : '发送消息'" aria-label="消息内容" @click="voice.clear(); composer?.focus()" @focus="voice.clear" @beforeinput="voice.clear" @compositionstart="voice.clear" @paste="pasteImages" @input="onComposerInput" @keydown="onKeydown" />
             <p v-if="attachments.error.value || imageErrors" class="image-upload-error" role="alert">{{ attachments.error.value || '有图片尚未上传，请重试或移除后发送。' }}</p>
             <div v-if="voiceNotice" :class="['voice-notice', { 'voice-error': !!voice.error.value }]" role="status"><span v-if="voice.busy.value" class="voice-dot"></span><span>{{ voiceNotice }}</span><button v-if="voice.error.value" type="button" class="voice-dismiss" aria-label="关闭语音提示" @click="voice.error.value = ''"><Close /></button></div>
           </div>
           <div class="composer-toolbar" @mousedown.prevent>
             <div class="composer-left">
               <button ref="composerPlus" type="button" class="composer-plus icon-button" :aria-label="composerMenu ? '收起更多操作' : '更多操作'" aria-haspopup="menu" aria-controls="composer-menu" :aria-expanded="composerMenu" @click.stop="toggleComposerMenu"><motion.span class="composer-plus-icon" :initial="false" :animate="{ rotate: composerMenu ? 45 : 0 }" :transition="controlSpring" aria-hidden="true"><Plus /></motion.span></button>
-              <PermissionSettings :thread="selectedThread" :new-thread="newChat" :connected="!!capabilities.settings && (newChat ? authenticated && !sending : streamStatus === 'connected')" :active="active" />
+              <PermissionSettings :thread="selectedThread" :new-thread="newChat" :editable="!!capabilities.settings" :connected="newChat ? authenticated && !sending : streamStatus === 'connected'" :active="active" />
             </div>
             <div class="composer-actions">
-              <ModelSettings :thread="selectedThread" :new-thread="newChat" :project-id="selectedProjectId" :connected="!!capabilities.settings && (newChat ? authenticated && !sending : streamStatus === 'connected')" @applied="updateThread" />
+              <ModelSettings :key="draftKey" v-model:selection="modelSelection" :thread="selectedThread" :new-thread="newChat" :connected="!!capabilities.modelSelection && !sending && (newChat ? authenticated : streamStatus === 'connected')" />
               <button type="button" class="voice-button icon-button" :class="{ recording: voice.busy.value }" :aria-label="voiceButtonLabel" :aria-pressed="voice.busy.value" :disabled="sending" @click="toggleVoice"><Close v-if="voice.phase.value === 'starting' || voice.phase.value === 'stopping'" /><VideoPause v-else-if="voice.phase.value === 'listening'" /><Microphone v-else /></button>
               <button type="button" class="send-button" :class="{ 'stop-button': composerAction.kind === 'stop', 'is-busy': composerAction.busy }" :disabled="composerAction.disabled" :aria-label="composerAction.label" @click="composerAction.kind === 'stop' ? stopTurn() : send()"><Transition name="action-symbol" mode="out-in"><span :key="composerAction.busy ? 'busy' : composerAction.kind" class="action-symbol"><Loading v-if="composerAction.busy" class="is-spin" /><span v-else-if="composerAction.kind === 'stop'" class="stop-square"></span><Top v-else /></span></Transition></button>
             </div>
@@ -1643,7 +1674,8 @@ onUnmounted(() => {
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'default'" :disabled="!capabilities.settings || !selectedId || sending || modeBusy || streamStatus !== 'connected'" @click="changeMode('default')"><EditPen /><span>执行</span><Check v-if="currentMode === 'default'" class="mode-check" /></button>
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'plan'" :disabled="!capabilities.settings || !selectedId || sending || modeBusy || streamStatus !== 'connected'" @click="changeMode('plan')"><DocumentAdd /><span>规划</span><Check v-if="currentMode === 'plan'" class="mode-check" /></button>
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'goal'" :disabled="!capabilities.goals || sending || modeBusy" @click="openGoal"><Aim /><span>目标</span><Check v-if="currentMode === 'goal'" class="mode-check" /></button>
-              <p v-if="!selectedId" class="composer-menu-hint">新对话沿用桌面默认；创建后可切换执行与规划。</p>
+              <p v-if="!capabilities.settings" class="composer-menu-hint">权限与执行、规划模式请在桌面调整，手机沿用桌面设置。</p>
+              <p v-else-if="!selectedId" class="composer-menu-hint">新对话沿用桌面默认模式。</p>
               <p v-if="modeBusy" class="composer-menu-hint" role="status">正在应用模式…</p>
             </motion.div>
           </AnimatePresence>

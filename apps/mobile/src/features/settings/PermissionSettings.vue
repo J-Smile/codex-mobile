@@ -5,7 +5,7 @@ import { request, threadUrl } from '../../api';
 import type { DesktopThread } from '../../types';
 import NativeSheet from '../../components/NativeSheet.vue';
 
-const props = defineProps<{ thread: DesktopThread | null; connected: boolean; active: boolean; newThread?: boolean }>();
+const props = withDefaults(defineProps<{ thread: DesktopThread | null; connected: boolean; active: boolean; newThread?: boolean; editable?: boolean }>(), { editable: true });
 const titleId = useId();
 const open = ref(false);
 const presented = ref<'thread' | 'defaults' | null>(null);
@@ -32,7 +32,7 @@ const label = computed(() => props.newThread ? '桌面默认' : fullAccess.value
 watch([() => props.thread?.id, () => props.newThread], () => { open.value = false; });
 let settingsRequest: AbortController | undefined;
 async function readSettings() {
-  if (!open.value || props.newThread || !props.thread) return;
+  if (!open.value || props.newThread || !props.thread || props.editable === false) return;
   settingsRequest?.abort();
   const controller = new AbortController();
   settingsRequest = controller;
@@ -75,8 +75,8 @@ async function apply() {
   <NativeSheet :open="open" :labelledby="titleId" :dismissible="!saving" panel-class="settings-modal" style="--sheet-width: 420px" @close="open = false" @after-close="presented = null">
       <section>
         <header class="modal-heading"><h2 :id="titleId">访问权限</h2><button class="icon-button" type="button" aria-label="关闭访问权限" :disabled="saving" @click="open = false"><Close /></button></header>
-        <template v-if="presented === 'defaults'">
-          <p class="permission-description">新对话使用桌面默认权限，创建后可在这里调整。</p>
+        <template v-if="presented === 'defaults' || editable === false">
+          <p class="permission-description">{{ newThread ? '新对话使用桌面默认权限。' : '手机沿用当前对话的桌面权限。' }}{{ editable === false ? '当前连接不支持修改权限，请在桌面调整。' : '创建后可在这里调整。' }}</p>
           <footer><button type="button" class="primary-button permission-apply" @click="open = false">知道了</button></footer>
         </template>
         <template v-else>

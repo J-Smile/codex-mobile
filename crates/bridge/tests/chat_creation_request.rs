@@ -18,7 +18,7 @@ fn seed() -> Value {
 #[test]
 fn official_creation_seed_stays_intact_in_live_summary() {
     let item = seed();
-    assert_eq!(chat_creation_input(&item), Some("Codex Mobile Rust HTTP isolated settings and queue test. Reply only READY. Do not call any tools."));
+    assert_eq!(chat_creation_input(&item).as_deref(), Some("Codex Mobile Rust HTTP isolated settings and queue test. Reply only READY. Do not call any tools."));
     assert_eq!(summarize_item(&item), item);
     let snapshot = summarize_snapshot(json!({"turns":[{
         "id":"seed-turn","items":[item.clone(),{"id":"answer","type":"agentMessage","text":"READY"}]
@@ -36,6 +36,17 @@ fn official_followup_input_preserves_user_text_and_original_item_identity() {
     let mut item = seed();
     item["name"] = json!("send_message_to_thread");
     assert!(chat_creation_input(&item).is_some());
+    assert_eq!(summarize_item(&item), item);
+}
+
+#[test]
+fn official_delegation_decodes_one_xml_layer_without_changing_the_saved_item() {
+    let mut item = seed();
+    item["output"] = json!("<codex_delegation><source_thread_id>source</source_thread_id><input>![image](&lt;C:/image.png&gt;) &amp;lt;literal&amp;gt; &amp; &#91;</input></codex_delegation>");
+    assert_eq!(
+        chat_creation_input(&item).as_deref(),
+        Some("![image](<C:/image.png>) &lt;literal&gt; & &#91;")
+    );
     assert_eq!(summarize_item(&item), item);
 }
 

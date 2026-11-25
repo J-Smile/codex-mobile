@@ -60,7 +60,7 @@ test('official create_thread seed exposes its exact original request without cha
   assert.equal(presentation.itemLabel(original), '创建聊天请求');
   assert.deepEqual(original, seed);
   const text = '  原始请求🙂\n检查 `<root>` 与 &lt;原文&gt;。  ';
-  const wrapped = { ...seed, output: seed.output.replace(prompt, text) };
+  const wrapped = { ...seed, output: seed.output.replace(prompt, text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')) };
   assert.equal(presentation.chatCreationRequestText(wrapped), text);
 });
 

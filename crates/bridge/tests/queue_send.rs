@@ -32,7 +32,7 @@ async fn unverified_queue_actions_never_steer_consume_or_recreate_rows() {
     }
     assert!(
         desktop
-            .send_message("chat", "message", "id", &[])
+            .send_message("chat", "message", "id", &[], &Default::default())
             .await
             .unwrap_err()
             .before_send

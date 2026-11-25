@@ -1,6 +1,6 @@
 use crate::{
     auth::{check_origin, header, Auth, RelayPhone},
-    config::{valid_model, ServiceConfig, EFFORTS},
+    config::{valid_model, MessageModel, ServiceConfig, EFFORTS},
     desktop::{Desktop, LiveView, QueueChange},
     goals::Goals,
     history::History,
@@ -654,6 +654,16 @@ impl Bridge {
                 },
             ));
         }
+        if route == "model-options" && method == Method::GET {
+            self.session.require("modelSelection")?;
+            return Ok(json_response(
+                200,
+                json!({
+                    "recentModels":self.history.recent_models()?,
+                    "efforts":self.session.model_efforts().unwrap_or_default(),
+                }),
+            ));
+        }
         if ["new-thread-settings", "context"].contains(&route) && method == Method::GET {
             self.session.require("catalog")?;
             let thread = query.get("threadId").filter(|s| !s.is_empty());
@@ -747,9 +757,7 @@ impl Bridge {
             let input = body(request).await?;
             let images = image_ids(input.get("images"))?;
             if !images.is_empty() {
-                return Err(
-                    BridgeError::unavailable("新建暂只支持文字，图片草稿保留。").before_send()
-                );
+                self.session.require("images")?;
             }
             if input.as_object().unwrap().keys().any(|key| {
                 ![
@@ -759,15 +767,19 @@ impl Bridge {
                     "projectId",
                     "images",
                     "title",
+                    "model",
+                    "thinking",
                 ]
                 .contains(&key.as_str())
             }) {
-                return Err(BridgeError::invalid(
-                    "新建使用官方默认模型和强度，不接受其他覆盖参数。",
-                )
-                .before_send());
+                return Err(BridgeError::invalid("新建请求包含不支持的参数。").before_send());
             }
             let (prompt, request_id) = message_fields(&input, &images)?;
+            let selection =
+                MessageModel::parse(&input, &self.session.model_efforts().unwrap_or_default())?;
+            if !selection.is_empty() {
+                self.session.require("modelSelection")?;
+            }
             let title = input
                 .get("title")
                 .map(|value| {
@@ -793,7 +805,14 @@ impl Bridge {
                 .to_owned();
             self.desktop.authorize(&source).await?;
             let target = format!("new:{project}");
-            let hash = crate::digest(json!([source, project, prompt, title]).to_string());
+            let mut identity = json!([source, project, prompt, title]);
+            if !images.is_empty() || !selection.is_empty() {
+                identity
+                    .as_array_mut()
+                    .unwrap()
+                    .extend([json!(images), json!(selection)]);
+            }
+            let hash = crate::digest(identity.to_string());
             let this = self.clone();
             let result = self
                 .dedup(
@@ -803,8 +822,17 @@ impl Bridge {
                     target,
                     "create",
                     async move {
+                        let attachments = this.images.attachments(&images)?;
+                        let prompt = crate::images::context_prompt(&prompt, &attachments);
                         this.desktop
-                            .create_chat(&source, &project, &prompt, &request_id, title.as_deref())
+                            .create_chat(
+                                &source,
+                                &project,
+                                &prompt,
+                                &request_id,
+                                title.as_deref(),
+                                &selection,
+                            )
                             .await
                     },
                 )
@@ -1042,17 +1070,31 @@ impl Bridge {
                 let input = body(request).await?;
                 let images = image_ids(input.get("images"))?;
                 let (prompt, request_id) = message_fields(&input, &images)?;
+                let selection =
+                    MessageModel::parse(&input, &self.session.model_efforts().unwrap_or_default())?;
+                if !selection.is_empty() {
+                    self.session.require("modelSelection")?;
+                }
                 let mode = input.get("mode").cloned().unwrap_or(json!("now"));
                 if mode != "now" && mode != "queue" {
                     return Err(BridgeError::invalid("请输入消息内容。"));
                 }
                 if mode == "queue" {
                     self.session.require("queue")?;
+                    if !selection.is_empty() {
+                        return Err(
+                            BridgeError::invalid("队列暂不支持覆盖模型设置。").before_send()
+                        );
+                    }
                 }
                 if !images.is_empty() {
                     self.session.require("images")?;
                 }
-                let hash = crate::digest(json!([id, prompt, mode, images]).to_string());
+                let mut identity = json!([id, prompt, mode, images]);
+                if !selection.is_empty() {
+                    identity.as_array_mut().unwrap().push(json!(selection));
+                }
+                let hash = crate::digest(identity.to_string());
                 let key = request_id.clone();
                 let this = self.clone();
                 let thread = id.to_string();
@@ -1072,7 +1114,13 @@ impl Bridge {
                                     .await
                             } else {
                                 this.desktop
-                                    .send_message(&thread, &prompt, &request_id, &attachments)
+                                    .send_message(
+                                        &thread,
+                                        &prompt,
+                                        &request_id,
+                                        &attachments,
+                                        &selection,
+                                    )
                                     .await
                             }
                         },

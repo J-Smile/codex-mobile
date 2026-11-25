@@ -137,7 +137,7 @@ pub fn context_prompt(prompt: &str, images: &[Value]) -> String {
         .collect::<Vec<_>>()
         .join("\n\n");
     format!(
-        "图片附件（请先查看）：\n\n{references}\n\n我的请求：\n{}",
+        "图片引用（请使用读图工具查看这些本地文件）：\n\n{references}\n\n我的请求：\n{}",
         if prompt.is_empty() {
             "请查看这些图片。"
         } else {
@@ -183,21 +183,26 @@ pub fn attachment_paths(item: &Value, image_directory: &Path) -> Vec<String> {
             add(path);
         }
     }
-    if item["type"] == "userMessage" {
-        for part in content.as_array().into_iter().flatten() {
-            if part["type"] == "text" || part["type"] == "inputText" {
-                for path in markdown_paths(part["text"].as_str().unwrap_or("")) {
-                    let path = Path::new(path);
-                    if path.parent().is_some_and(|p| {
-                        crate::paths::normalized(p) == crate::paths::normalized(image_directory)
-                    }) && path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .is_some_and(valid_id)
-                    {
-                        add(path.to_str().unwrap());
-                    }
-                }
+    let user_text = content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|part| {
+            item["type"] == "userMessage" && (part["type"] == "text" || part["type"] == "inputText")
+        })
+        .filter_map(|part| part["text"].as_str());
+    let delegated = crate::state::chat_creation_input(item);
+    for text in user_text.chain(delegated.as_deref()) {
+        for path in markdown_paths(text) {
+            let path = Path::new(path);
+            if path.parent().is_some_and(|p| {
+                crate::paths::normalized(p) == crate::paths::normalized(image_directory)
+            }) && path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(valid_id)
+            {
+                add(path.to_str().unwrap());
             }
         }
     }

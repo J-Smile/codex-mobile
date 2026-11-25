@@ -20,7 +20,7 @@ function fixture(request) {
     usageOpen: ref(false), historyCursor: ref('older'), changedFileCount: ref(3), newChat: ref(false),
     connectionError: ref(''), composerMenu: ref(false), chatMenu: ref(false), contextOpen: ref(false), notice: ref(''),
     interactions: ref([{ id: 'question' }]), delegationOpen: ref(false), threads: ref([{ id: 'fixture-chat' }]),
-    pendingMessages: ref([]), drafts: { 'fixture-chat': '保留的草稿' },
+    pendingMessages: ref([]), drafts: { 'fixture-chat': '保留的草稿' }, modelDrafts: { 'fixture-chat': {model:'selected-model'} },
   };
   const cleared = [];
   let entries = 0;

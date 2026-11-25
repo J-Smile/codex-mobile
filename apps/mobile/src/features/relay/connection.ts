@@ -268,6 +268,7 @@ class Channel {
         path,
         length,
         contentType: headers.get('content-type'),
+        contract: headers.get('x-codex-mobile-contract'),
         fileName: headers.get('x-file-name'),
         range: headers.get('range'),
         responseWindow: receiveWindow,

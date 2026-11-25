@@ -685,15 +685,14 @@ impl Phone {
     }
 
     async fn request(&mut self, path: &str) -> (u16, Vec<u8>) {
+        self.request_head(json!({"method":"GET","path":path,"length":0,"responseWindow":1}))
+            .await
+    }
+
+    async fn request_head(&mut self, head: Value) -> (u16, Vec<u8>) {
         self.next += 1;
         let id = self.next;
-        self.send(
-            3,
-            id,
-            &serde_json::to_vec(&json!({"method":"GET","path":path,"length":0,"responseWindow":1}))
-                .unwrap(),
-        )
-        .await;
+        self.send(3, id, &serde_json::to_vec(&head).unwrap()).await;
         let (kind, reply_id, head) = self.read().await.unwrap();
         assert_eq!((kind, reply_id), (6, id));
         let status = serde_json::from_slice::<Value>(&head).unwrap()["status"]
@@ -712,6 +711,43 @@ impl Phone {
         }
         (status, body)
     }
+}
+
+#[tokio::test]
+async fn encrypted_relay_preserves_write_contract_without_upgrading_old_clients() {
+    tokio::time::timeout(Duration::from_secs(15), async {
+        let (origin, server, owner) = relay().await;
+        let cookie = login(&Client::new(), &origin, &owner.login_key).await;
+        let fixture = Fixture::new();
+        let (host, mock) = desktop(&fixture, &origin, "协议验证", &owner.desktop_key).await;
+        let (public, ticket) = invitation(&host).await;
+        let phone_key = snow::Builder::new(NOISE.parse().unwrap())
+            .generate_keypair()
+            .unwrap();
+        let (mut phone, allowed) =
+            Phone::connect(&origin, &cookie, &public, &phone_key.private, &ticket).await;
+        assert!(allowed);
+        for path in ["/api/threads", "/api/threads/chat/messages"] {
+            for contract in [None, Some("1"), Some("2")] {
+                let mut head = json!({"method":"POST","path":path,"length":0,"responseWindow":1});
+                if let Some(contract) = contract {
+                    head["contract"] = json!(contract);
+                }
+                let (status, body) = phone.request_head(head).await;
+                // 当前协议进入业务能力校验，旧网页仍在投递前被拒绝。
+                assert_eq!(status, if contract == Some("2") { 503 } else { 426 });
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&body).unwrap()["outcome"],
+                    "not-dispatched"
+                );
+            }
+        }
+        assert!(mock.calls.lock().await.is_empty());
+        host.stop().await.unwrap();
+        server.abort();
+    })
+    .await
+    .unwrap();
 }
 
 async fn send_up(

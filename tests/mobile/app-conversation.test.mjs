@@ -25,7 +25,8 @@ const compiled = ts.transpileModule(selected, { compilerOptions: { target: ts.Sc
 function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
   const queueSnapshots = [];
   const state = {
-    capabilities: ref({ send: true, create: true, resume: true, interrupt: true }), operationsReady: ref(true), unresolvedOperations: ref([]),
+    capabilities: ref({ send: true, create: true, resume: true, interrupt: true, images: true }), operationsReady: ref(true), unresolvedOperations: ref([]),
+    modelSelection: ref({}), modelDrafts: reactive({}),
     authenticated: ref(true), selectedId: ref('child'), selectedProjectId: ref('project'),
     selectedThread: ref({ id: 'child', title: '子对话' }), threads: ref([]),
     historyCursor: ref(null), changedFileCount: ref(undefined), loadingHistory: ref(false), historyError: ref(''),

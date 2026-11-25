@@ -20,6 +20,52 @@ pub fn valid_model(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"_.:/-".contains(&c))
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MessageModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+}
+impl MessageModel {
+    pub fn parse(input: &Value, efforts: &[String]) -> Result<Self> {
+        let model = input
+            .get("model")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| valid_model(value))
+                    .map(str::to_owned)
+                    .ok_or_else(|| BridgeError::invalid("请输入有效的模型 ID。").before_send())
+            })
+            .transpose()?;
+        let thinking = input
+            .get("thinking")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| efforts.iter().any(|effort| effort == value))
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        BridgeError::invalid("请选择当前桌面支持的思考强度。").before_send()
+                    })
+            })
+            .transpose()?;
+        Ok(Self { model, thinking })
+    }
+    pub fn is_empty(&self) -> bool {
+        self.model.is_none() && self.thinking.is_none()
+    }
+    pub fn apply(&self, arguments: &mut Value) {
+        if let Some(model) = &self.model {
+            arguments["model"] = json!(model);
+        }
+        if let Some(thinking) = &self.thinking {
+            arguments["thinking"] = json!(thinking);
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ServiceConfig {

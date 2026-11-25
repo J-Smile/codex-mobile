@@ -160,9 +160,20 @@ impl Session {
             (native || crate::runtime::SHARED_RUNTIME_VERIFIED) && status["connected"] == true;
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
         json!({"readLive":connected,"send":connected,"queue":connected && !native,"catalog":false,
-            "native":native,"create":native,"images":connected && !native,
+            "native":native,"create":native,"images":connected,"imageReferences":native,
+            "modelSelection":native && self.model_efforts().is_some(),
             "resume":false,"queueStart":false,"queueReorder":false,"queueEdit":false,
             "interrupt":false,"interactions":false,"settings":false,"goals":false})
+    }
+    pub fn model_efforts(&self) -> Option<Vec<String>> {
+        self.current
+            .read()
+            .unwrap()
+            .as_ref()
+            .filter(|connection| {
+                connection.is_native() && connection.is_alive() && connection.owner_valid()
+            })
+            .and_then(|connection| crate::native::model_efforts(&connection.initialized))
     }
     pub fn require(&self, capability: &str) -> Result<()> {
         if self.capabilities()[capability] != true {

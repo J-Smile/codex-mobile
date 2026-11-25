@@ -14,7 +14,9 @@ export function chatCreationRequestText(item: ThreadItem): string | undefined {
   if (item.type !== 'functionCallOutput' || !['create_thread', 'send_message_to_thread'].includes(item.name)
     || item.namespace !== 'codex_app' || typeof item.output !== 'string') return;
   const delegation = /^\s*<codex_delegation>\s*<source_thread_id>([^<>]+)<\/source_thread_id>\s*<input>([\s\S]*)<\/input>\s*<\/codex_delegation>\s*$/.exec(item.output);
-  if (delegation?.[1]?.trim() && delegation[2]?.trim()) return delegation[2];
+  // 官方 delegation 按 XML 转义输入，只还原一层。
+  if (delegation?.[1]?.trim() && delegation[2]?.trim()) return delegation[2].replace(/&(lt|gt|quot|apos|amp);/g,
+    (_, entity: 'lt' | 'gt' | 'quot' | 'apos' | 'amp') => ({ lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' })[entity]);
 }
 
 export function itemRunning(item: ThreadItem) {

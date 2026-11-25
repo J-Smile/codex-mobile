@@ -4,7 +4,8 @@ import Noise from 'noise-handshake';
 import Cipher from 'noise-handshake/cipher.js';
 import { createPhoneIdentity, RelayConnection } from '../../apps/mobile/src/features/relay/connection.ts';
 import { readSse, SseReadError } from '../../apps/mobile/src/sse.ts';
-import { RelayError } from '../../apps/mobile/src/transport.ts';
+import { bindRelayDesktop, RelayError } from '../../apps/mobile/src/transport.ts';
+import { request } from '../../apps/mobile/src/api.ts';
 
 const origin = 'http://localhost';
 const transportError = { message: /无法通过云中转连接电脑/ };
@@ -19,7 +20,7 @@ function relay(t, { startup, disconnect } = {}) {
   const connection = new RelayConnection({
     id: 'a'.repeat(64), publicKey: desktop.publicKey.toString('hex'), name: '隔离电脑', phone: createPhoneIdentity(),
   }, origin);
-  const requests = [];
+  const requests = [], requestHeads = [];
   let attempts = 0;
   let session;
   t.after(() => connection.close());
@@ -89,12 +90,14 @@ function relay(t, { startup, disconnect } = {}) {
         continue;
       }
       if (kind !== packetTypes.request) continue;
-      const { method, path } = JSON.parse(plaintext.subarray(5));
+      const head = JSON.parse(plaintext.subarray(5));
+      const { method, path } = head;
+      requestHeads.push(head);
       requests.push({ attempt, method, path });
       if (path.endsWith('/events')) {
         send(packetTypes.response, id, JSON.stringify({ status: 200, headers: { 'content-type': 'text/event-stream' } }));
         send(packetTypes.responseData, id, 'event: snapshot\ndata: {"ok":true}\n\n');
-      } else if (method === 'POST' && attempt === 1) {
+      } else if (method === 'POST' && attempt === 1 && disconnect) {
         if (disconnect === 'eof') controller.close();
         else if (disconnect === 'network-reset') controller.error(networkReset());
         else if (disconnect === 'tampering') sendFrame(Buffer.alloc(21));
@@ -108,8 +111,27 @@ function relay(t, { startup, disconnect } = {}) {
     return new Response(null, { status: 204 });
   });
 
-  return { connection, requests, attempts: () => attempts };
+  return { connection, requests, requestHeads, attempts: () => attempts };
 }
+
+test('新建和追加消息经过加密云连接时保留 API 协议版本', async t => {
+  const { connection, requestHeads } = relay(t);
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  globalThis.document = { querySelector: () => ({}) };
+  t.after(() => { if (previous) Object.defineProperty(globalThis, 'document', previous); else delete globalThis.document; });
+  const unbind = bindRelayDesktop('fixture-account', 'fixture-desktop', connection.request.bind(connection));
+  t.after(unbind);
+  for (const path of ['/api/threads', '/api/threads/fixture/messages']) {
+    assert.deepEqual(await request(path, { method: 'POST', body: '{}' }), { connected: true });
+    assert.equal(requestHeads.at(-1).contract, '2');
+    assert.equal(requestHeads.at(-1).contentType, 'application/json');
+    assert.equal(requestHeads.at(-1).path, path);
+  }
+  await connection.request('/api/session');
+  assert.equal(requestHeads.at(-1).contract, null);
+  await connection.request('/api/session', { headers: { 'x-codex-mobile-contract': '1' } });
+  assert.equal(requestHeads.at(-1).contract, '1');
+});
 
 test('云端请求或握手读取中断后重新握手，不误报加密校验失败', async t => {
   for (const startup of ['fetch-rejection', 'html-response', 'ready-eof', 'handshake-read-rejection', 'handshake-eof', 'auth-eof']) {

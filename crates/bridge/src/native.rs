@@ -147,9 +147,45 @@ pub(crate) fn supported_catalog(value: &Value) -> bool {
     })
 }
 
+pub(crate) fn model_efforts(catalog: &Value) -> Option<Vec<String>> {
+    let tools = catalog["tools"].as_array()?;
+    let mut efforts = crate::config::EFFORTS
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    for name in ["create_thread", "send_message_to_thread"] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["namespace"] == "codex_app" && tool["name"] == name)?;
+        let properties = &tool["inputSchema"]["properties"];
+        if properties["model"]["type"] != "string" || properties["thinking"]["type"] != "string" {
+            return None;
+        }
+        let supported = properties["thinking"]["enum"].as_array()?;
+        efforts.retain(|effort| supported.iter().any(|value| value.as_str() == Some(effort)));
+    }
+    (!efforts.is_empty()).then_some(efforts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn message_models_require_both_tool_schemas_and_share_supported_efforts() {
+        let tool = |name, efforts| {
+            serde_json::json!({"namespace":"codex_app","name":name,"inputSchema":{"properties":{
+                "model":{"type":"string"},"thinking":{"type":"string","enum":efforts}
+            }}})
+        };
+        let mut catalog = serde_json::json!({"tools":[tool("create_thread", vec!["low","high"]),tool("send_message_to_thread", vec!["high","max"])]});
+        assert_eq!(model_efforts(&catalog), Some(vec!["high".into()]));
+        catalog["tools"][1]["inputSchema"]["properties"]["thinking"]["enum"] =
+            serde_json::json!(["ultra"]);
+        assert!(model_efforts(&catalog).is_none());
+        catalog["tools"][1]["inputSchema"]["properties"]["model"] = serde_json::Value::Null;
+        assert!(model_efforts(&catalog).is_none());
+        assert!(model_efforts(&serde_json::json!({"tools":[]})).is_none());
+    }
     #[test]
     fn changed_process_identity_and_pipe_generation_invalidate_the_old_owner() {
         let process = ProcessIdentity::current().unwrap();

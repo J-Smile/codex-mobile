@@ -9,9 +9,9 @@ import { ApiError } from '../../apps/mobile/src/api.ts';
 // Execute the page's actual draft bindings and creation handler with HTTP/navigation doubles.
 const source = readFileSync(new URL('../../apps/mobile/src/App.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0];
 const ast = ts.createSourceFile('App.ts', source, ts.ScriptTarget.Latest, true);
-const declarations = new Set(['retryMessages', 'pendingSends', 'sending', 'activeProject', 'draftKey', 'draft', 'creationSource', 'createdDraft', 'firstTurnPending']);
+const declarations = new Set(['retryMessages', 'pendingSends', 'sending', 'activeProject', 'draftKey', 'draft', 'modelSelection', 'creationSource', 'createdDraft', 'firstTurnPending']);
 const selected = ast.statements.filter((node) => {
-  if (ts.isFunctionDeclaration(node)) return node.name?.text === 'createChat';
+  if (ts.isFunctionDeclaration(node)) return ['createChat', 'send', 'sendMessage', 'applySnapshot'].includes(node.name?.text);
   return ts.isVariableStatement(node) && node.declarationList.declarations.some((entry) => declarations.has(entry.name.getText(ast)));
 }).map((node) => node.getText(ast)).join('\n');
 const compiled = ts.transpileModule(selected, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
@@ -22,12 +22,20 @@ function fixture(t, respond = async () => ({ threadId: 'created-chat' })) {
     projects: ref([{ projectId: 'project-a', label: '项目 A', path: '/project-a' }]),
     selectedProjectId: ref('project-a'), selectedId: ref(''), newChat: ref(true),
     drafts: reactive({ 'new:project-a': '检查手机布局' }),
+    modelDrafts: reactive({}), operationsReady: ref(true), unresolvedOperations: ref([]),
+    imagesUploading: ref(false), imageErrors: ref(false), streamStatus: ref('connected'),
+    active: ref(false), queueState: ref(null), pendingMessages: ref([]),
+    turns: ref([]), historyCursor: ref(null), changedFileCount: ref(0), interactions: ref([]),
     error: ref(''), threads: ref([]), capabilities: ref({create:false}), notice:ref(''),
   };
-  const images = ref([{ id: 'a'.repeat(32) + '.png', name: '手机截图.png' }]);
+  const images = ref([{ id: 'a'.repeat(32) + '.png', name: '手机截图.png', url: '/api/images/test' }]);
   const bindings = {
     readRetryMessages: () => [],
     ...state, computed, reactive, ref, crypto: webcrypto, ApiError, persistRetryMessages() {}, loadOperations:async()=>{},
+    draftImages: images, hasMessage: computed(() => !!images.value.length || !!state.drafts[state.newChat.value ? 'new:project-a' : state.selectedId.value]),
+    voice: { busy: ref(false) }, nextTick: async()=>{}, resizeComposer() {}, scrollBottom() {}, reconcilePending() {},
+    location: { origin: 'http://localhost' }, threadUrl: (id, route) => '/api/threads/' + id + '/' + route,
+    messageQueue: { acceptSnapshot() {} }, mergeTurns: (previous, next) => next, updateThread() {}, historyGap: null, historyRequest: null,
     attachments: { readyImages: () => [...images.value], clear: (key, ids) => { cleared.push({ key, ids }); } },
     request: async (url, options) => {
       const call = { url, options, body: JSON.parse(options.body) };
@@ -39,7 +47,7 @@ function fixture(t, respond = async () => ({ threadId: 'created-chat' })) {
   };
   const scope = effectScope();
   const app = scope.run(() => new Function(...Object.keys(bindings), compiled
-    + '\nreturn { createChat, draft, draftKey, sending, creationSource, createdDraft, firstTurnPending };')(...Object.values(bindings)));
+    + '\nreturn { createChat, send, applySnapshot, draft, draftKey, modelSelection, sending, creationSource, createdDraft, firstTurnPending };')(...Object.values(bindings)));
   t.after(() => scope.stop());
   return { ...state, ...app, requests, cleared, opened, images };
 }
@@ -78,4 +86,69 @@ test('创建结果未知时改写文本也不重复创建，投递前失败才�
   await app.createChat(); app.draft.value='新的文字'; await app.createChat();
   assert.equal(app.requests.length,1); assert.equal(app.opened.length,0);
   assert.equal(app.draft.value,'新的文字');
+});
+
+test('纯图新建携带图片和明确选择，首轮确认只清理本次提交内容', async t => {
+  const app = fixture(t, async()=>({threadId:'created-chat',firstTurnAccepted:false}));
+  app.capabilities.value.create = true; app.creationSource.value = 'chosen-source';
+  app.draft.value = '';
+  app.modelSelection.value = { model: 'selected-model', thinking: 'high' };
+  await app.createChat();
+  assert.equal(app.requests[0].body.prompt, '');
+  assert.deepEqual(app.requests[0].body.images, ['a'.repeat(32) + '.png']);
+  assert.equal(app.requests[0].body.model, 'selected-model');
+  assert.equal(app.requests[0].body.thinking, 'high');
+  assert.deepEqual(app.cleared, []);
+  app.drafts['new:project-a'] = '之后补充的内容';
+  app.modelDrafts['new:project-a'] = { model: 'next-model' };
+  const snapshot = { thread: {id:'created-chat'}, turns:[], syncMode:'desktop-poll', firstTurnPending:true };
+  app.applySnapshot(snapshot);
+  assert.deepEqual(app.cleared, []);
+  app.applySnapshot({...snapshot, firstTurnPending:false});
+  assert.deepEqual(app.cleared, [{key:'new:project-a',ids:['a'.repeat(32) + '.png']}]);
+  assert.equal(app.drafts['new:project-a'], '之后补充的内容');
+  assert.deepEqual(app.modelDrafts['new:project-a'], {model:'next-model'});
+  assert.equal(app.createdDraft.value, null);
+});
+
+test('已有聊天文图发送透传模型，接受后清空本次草稿', async t => {
+  const app = fixture(t, async()=>({accepted:true}));
+  app.newChat.value = false; app.selectedId.value = 'chat';
+  app.capabilities.value = {send:true, images:true, modelSelection:true, native:true};
+  app.draft.value = '检查图片';
+  app.modelSelection.value = {thinking:'high'};
+  await app.send();
+  assert.equal(app.requests.length, 1);
+  assert.equal(app.requests[0].body.model, undefined);
+  assert.equal(app.requests[0].body.thinking, 'high');
+  assert.equal(app.requests[0].body.mode, 'now');
+  assert.equal(app.requests[0].body.images.length, 1);
+  assert.equal(app.draft.value, '');
+  assert.deepEqual(app.modelSelection.value, {});
+  assert.deepEqual(app.cleared, [{key:'chat',ids:['a'.repeat(32) + '.png']}]);
+});
+
+test('图片发送未知时保留草稿与模型并阻止重复请求', async t => {
+  const failure = new ApiError('回执丢失',503); failure.outcome = 'unknown';
+  const app = fixture(t, async()=>{throw failure;});
+  app.newChat.value = false; app.selectedId.value = 'chat';
+  app.capabilities.value = {send:true, images:true, native:true};
+  app.draft.value = '检查图片'; app.modelSelection.value = {model:'selected-model'};
+  await app.send(); await app.send();
+  assert.equal(app.requests.length, 1);
+  assert.equal(app.draft.value, '检查图片');
+  assert.deepEqual(app.modelSelection.value, {model:'selected-model'});
+  assert.deepEqual(app.cleared, []);
+});
+
+test('投递前失败允许重试，当前连接没有图片能力则保留图片', async t => {
+  const failure = new ApiError('连接已断开',503); failure.outcome = 'not-dispatched';
+  const app = fixture(t, async(_, count)=>{if(count === 1) throw failure; return {accepted:true};});
+  app.newChat.value = false; app.selectedId.value = 'chat';
+  app.capabilities.value = {send:true, native:true};
+  await app.send(); assert.equal(app.requests.length, 0);
+  app.capabilities.value.images = true;
+  await app.send(); assert.deepEqual(app.cleared, []);
+  await app.send(); assert.equal(app.requests.length, 2);
+  assert.equal(app.cleared.length, 1);
 });
