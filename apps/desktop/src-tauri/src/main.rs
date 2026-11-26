@@ -346,12 +346,7 @@ fn main() {
                     }
                     let state = handle.state::<AppState>();
                     let _operation = state.update_operation.lock().await;
-                    if *requests.borrow()
-                        || host
-                            .updates
-                            .status()
-                            .is_ok_and(|s| s["mode"] == "automatic")
-                    {
+                    if *requests.borrow() || host.updates.status()["mode"] == "automatic" {
                         if host.prepare_update().await.unwrap_or(false) {
                             let _ = apply(&handle, true).await;
                         }
