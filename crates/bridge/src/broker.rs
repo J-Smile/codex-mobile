@@ -35,6 +35,10 @@ struct Pending {
     thread: Option<String>,
     ephemeral: bool,
 }
+struct ServerRequest {
+    message: Value,
+    recipients: HashSet<Option<String>>,
+}
 enum Event {
     Connected(String, Client),
     Message(String, Value),
@@ -45,7 +49,7 @@ struct Router {
     next_id: u64,
     clients: HashMap<String, Client>,
     pending: HashMap<String, Pending>,
-    server_requests: HashMap<String, HashSet<Option<String>>>,
+    server_requests: HashMap<String, ServerRequest>,
     desktop_threads: HashSet<String>,
 }
 impl Router {
@@ -70,8 +74,8 @@ impl Router {
         self.clients.remove(id);
         self.pending
             .retain(|_, pending| pending.client.as_deref() != Some(id));
-        for recipients in self.server_requests.values_mut() {
-            recipients.remove(&Some(id.into()));
+        for request in self.server_requests.values_mut() {
+            request.recipients.remove(&Some(id.into()));
         }
     }
     fn outgoing(
@@ -109,6 +113,13 @@ impl Router {
                     "thread/unsubscribe" => {
                         if let Some(thread) = message["params"]["threadId"].as_str() {
                             self.clients.get_mut(client)?.subscribed.remove(thread);
+                            for request in self
+                                .server_requests
+                                .values_mut()
+                                .filter(|request| request.message["params"]["threadId"] == thread)
+                            {
+                                request.recipients.remove(&Some(client.into()));
+                            }
                         }
                         // 多个视图共用一个官方 stdio 客户端，手机退出不能卸载桌面线程。
                         Some(Ok(json!({})))
@@ -163,7 +174,7 @@ impl Router {
             if self
                 .server_requests
                 .get(&key)
-                .is_some_and(|recipients| recipients.contains(&client.map(str::to_owned)))
+                .is_some_and(|request| request.recipients.contains(&client.map(str::to_owned)))
             {
                 self.server_requests.remove(&key);
                 return Some(message);
@@ -177,6 +188,14 @@ impl Router {
                 self.server_requests
                     .remove(&message["params"]["requestId"].to_string());
             }
+            if message["method"] == "turn/completed" || message["method"] == "thread/closed" {
+                self.server_requests.retain(|_, request| {
+                    request.message["params"]["threadId"] != message["params"]["threadId"]
+                        || (message["method"] == "turn/completed"
+                            && request.message["params"]["turnId"]
+                                != message["params"]["turn"]["id"])
+                });
+            }
             let thread = message["params"]["threadId"].as_str();
             let recipients: Vec<String> = self
                 .clients
@@ -189,8 +208,13 @@ impl Router {
             if valid_id(&message["id"]) {
                 let mut owners = HashSet::from([None]);
                 owners.extend(recipients.iter().cloned().map(Some));
-                self.server_requests
-                    .insert(message["id"].to_string(), owners);
+                self.server_requests.insert(
+                    message["id"].to_string(),
+                    ServerRequest {
+                        message: message.clone(),
+                        recipients: owners,
+                    },
+                );
             }
             if message["method"] == "thread/closed" {
                 if let Some(thread) = thread {
@@ -225,6 +249,20 @@ impl Router {
                         .and_then(|id| self.clients.get_mut(id))
                     {
                         client.subscribed.insert(thread.into());
+                    }
+                    if let Some(client) = pending.client.as_ref() {
+                        let requests = self
+                            .server_requests
+                            .values_mut()
+                            .filter(|request| request.message["params"]["threadId"] == thread)
+                            .map(|request| {
+                                request.recipients.insert(Some(client.clone()));
+                                request.message.clone()
+                            })
+                            .collect::<Vec<_>>();
+                        for request in requests {
+                            self.deliver(client, request);
+                        }
                     }
                 }
             }
@@ -359,9 +397,13 @@ pub(crate) async fn run<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 line=input.next_line()=>match line? {
                     Some(line)=>match serde_json::from_str::<Value>(&line) {
                         Ok(message)=>{
-                            let ready = message["method"] == "initialized" && initialized.is_some() && record.state == "starting";
+                            let ready = record.state == "starting" && initialized.as_ref().is_some_and(|reply: &Value| {
+                                message["method"] == "initialized"
+                                    || (reply["userAgent"].as_str().is_some_and(|agent| agent.starts_with("Codex Desktop/0.171.0-alpha.13.2 "))
+                                        && message["method"].is_string() && message["method"] != "initialize" && valid_id(&message["id"]))
+                            });
                             if let Some(message)=router.outgoing(None,message,initialized.as_ref()) { write_line(&mut writer,&message).await?; }
-                            // 官方握手通知投递后再接入手机，避免在桌面完成握手前插入 RPC。
+                            // 当前桌面在初始化回执后直接请求账号，不再发送 initialized；以真实后续请求确认握手完成。
                             if ready { record.state="ready".into();record.publish(&directory)?; }
                         },
                         // 非 RPC 输入仍交由官方解释，不伪装成成功或重新启动后端。
@@ -487,14 +529,78 @@ mod tests {
             .is_none());
     }
     #[test]
+    fn pending_approval_is_restored_for_the_new_subscription_only() {
+        let mut router = Router::new("instance".into());
+        router.desktop_threads.insert("same".into());
+        let approval = json!({"id":19,"method":"item/commandExecution/requestApproval","params":{"threadId":"same","turnId":"turn","command":"echo test"}});
+        router.incoming(approval.clone());
+        for id in ["old", "new"] {
+            let (peer, mut replies) = client();
+            router.clients.insert(id.into(), peer);
+            let resume = router
+                .outgoing(
+                    Some(id),
+                    json!({"id":1,"method":"thread/resume","params":{"threadId":"same"}}),
+                    None,
+                )
+                .unwrap();
+            router.incoming(json!({"id":resume["id"],"result":{"thread":{"id":"same"}}}));
+            assert_eq!(replies.try_recv().unwrap(), approval);
+            assert_eq!(replies.try_recv().unwrap()["id"], 1);
+            if id == "old" {
+                router.disconnect(id);
+            }
+        }
+        assert!(router
+            .outgoing(
+                Some("old"),
+                json!({"id":19,"result":{"decision":"accept"}}),
+                None
+            )
+            .is_none());
+        assert!(router
+            .outgoing(
+                Some("new"),
+                json!({"id":19,"result":{"decision":"decline"}}),
+                None
+            )
+            .is_some());
+        assert!(router
+            .outgoing(None, json!({"id":19,"result":{"decision":"accept"}}), None)
+            .is_none());
+        router.incoming(approval);
+        router.incoming(json!({"method":"turn/completed","params":{"threadId":"same","turn":{"id":"turn","status":"interrupted"}}}));
+        assert!(router.server_requests.is_empty());
+    }
+
+    #[test]
     fn mobile_disconnect_or_unsubscribe_never_unloads_desktop_or_replays() {
         let mut router = Router::new("instance".into());
         let (client, mut replies) = client();
         router.clients.insert("phone".into(), client);
         router.desktop_threads.insert("same".into());
+        router
+            .clients
+            .get_mut("phone")
+            .unwrap()
+            .subscribed
+            .insert("same".into());
+        let approval = json!({"id":19,"method":"item/commandExecution/requestApproval","params":{"threadId":"same"}});
+        router.incoming(approval.clone());
+        assert_eq!(replies.try_recv().unwrap(), approval);
         assert!(router.outgoing(Some("phone"),json!({"id":"unsubscribe","method":"thread/unsubscribe","params":{"threadId":"same"}}),None).is_none());
         assert_eq!(replies.try_recv().unwrap()["result"], json!({}));
         assert!(router.desktop_threads.contains("same"));
+        assert!(router
+            .outgoing(
+                Some("phone"),
+                json!({"id":19,"result":{"decision":"accept"}}),
+                None
+            )
+            .is_none());
+        assert!(router
+            .outgoing(None, json!({"id":19,"result":{"decision":"decline"}}), None)
+            .is_some());
         let pending = router
             .outgoing(
                 Some("phone"),
@@ -579,6 +685,11 @@ mod tests {
 
     #[tokio::test]
     async fn authenticated_wire_uses_one_stdio_initialize_and_keeps_desktop_subscription() {
+        authenticated_wire_handshake(false).await;
+        authenticated_wire_handshake(true).await;
+    }
+
+    async fn authenticated_wire_handshake(without_notification: bool) {
         use crate::{app_server::AppServerConnection, process_identity::ProcessIdentity};
         use std::sync::{Arc, Mutex};
         let temp = tempfile::tempdir().unwrap();
@@ -616,7 +727,17 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(serde_json::from_str(&initial).unwrap());
-            write_line(&mut writer,&json!({"id":7,"result":{"userAgent":"Codex Desktop/0.171.0-alpha.13 (fixture)","codexHome":home}})).await.unwrap();
+            let agent = if without_notification {
+                "Codex Desktop/0.171.0-alpha.13.2 (fixture)"
+            } else {
+                "Codex Desktop/0.171.0-alpha.13 (fixture)"
+            };
+            write_line(
+                &mut writer,
+                &json!({"id":7,"result":{"userAgent":agent,"codexHome":home}}),
+            )
+            .await
+            .unwrap();
             while let Some(line) = reader.next_line().await.unwrap() {
                 let value: Value = serde_json::from_str(&line).unwrap();
                 observed.lock().unwrap().push(value.clone());
@@ -650,12 +771,14 @@ mod tests {
                 .unwrap()
                 .before_send
         );
-        write_line(
-            &mut desktop_writer,
-            &json!({"method":"initialized","params":{}}),
-        )
-        .await
-        .unwrap();
+        if !without_notification {
+            write_line(
+                &mut desktop_writer,
+                &json!({"method":"initialized","params":{}}),
+            )
+            .await
+            .unwrap();
+        }
         assert!(
             AppServerConnection::connect_broker(&endpoint, "wrong-token")
                 .await
@@ -725,7 +848,7 @@ mod tests {
                 .iter()
                 .filter(|value| value["method"] == "initialized")
                 .count(),
-            1
+            usize::from(!without_notification)
         );
         assert!(calls.iter().all(|value| !matches!(
             value["method"].as_str(),

@@ -109,13 +109,21 @@ impl Desktop {
         })
     }
     pub async fn sync_status(&self) -> Value {
-        if !crate::runtime::SHARED_RUNTIME_VERIFIED && self.session.status()["native"] != true {
+        if (!crate::runtime::SHARED_RUNTIME_VERIFIED || !crate::native::eligible(&self.paths))
+            && self.session.status()["native"] != true
+        {
             return json!({"state":"history-only","message":"本版本仅提供本机历史阅读；任务操作请在官方 Codex 完成。"});
         }
         if self.session.status()["connected"] != true {
             return json!({"state":"waiting","message":self.last_native_error.read().await.as_deref().unwrap_or("桌面未接入，已保存的历史仍可阅读。")});
         }
         match self.last_native_error.read().await.as_ref() {
+            None if self.session.status()["controls"] == true => {
+                json!({"state":"connected","message":"已连接官方桌面，支持手机回复、审批、停止和官方队列。"})
+            }
+            None if crate::runtime::SHARED_RUNTIME_VERIFIED => {
+                json!({"state":"connected","message":"已连接官方消息通道。启用审批、停止和队列：待任务结束后退出 Codex，再从 Mobile 打开。"})
+            }
             None => {
                 json!({"state":"connected","message":"已连接官方桌面，支持文字发送和聊天同步。"})
             }
@@ -123,7 +131,7 @@ impl Desktop {
         }
     }
     pub async fn probe(&self) -> Result<()> {
-        if !crate::native::eligible(&self.paths) && !crate::runtime::SHARED_RUNTIME_VERIFIED {
+        if !crate::native::eligible(&self.paths) {
             return Err(
                 BridgeError::unavailable("此环境未开放桌面控制，保留历史阅读。").before_send(),
             );
@@ -167,10 +175,11 @@ impl Desktop {
         self.session.require("readLive")?;
         let connection = self.session.connect().await?;
         self.check_instance(&connection).await;
-        self.require_route(&connection, thread).await?;
-        let payload = if connection.is_native() {
-            Self::native_call(&connection, thread, tool, args, request_id).await?
+        let payload = if let Some(native) = connection.native_tools() {
+            self.require_route(&native, thread).await?;
+            Self::native_call(&native, thread, tool, args, request_id).await?
         } else {
+            self.require_route(&connection, thread).await?;
             let result = connection
                 .request(
                     "mcpServer/tool/call",
@@ -349,10 +358,12 @@ impl Desktop {
         if !projects.iter().any(|row| row["projectId"] == project) {
             return Err(BridgeError::invalid("该官方本机项目已不可用，请重新选择。").before_send());
         }
-        let connection = self.session.connect().await?;
-        if !connection.is_native() {
-            return Err(BridgeError::unavailable("新建需要官方原生桌面入口。").before_send());
-        }
+        let connection = self
+            .session
+            .connect()
+            .await?
+            .native_tools()
+            .ok_or_else(|| BridgeError::unavailable("新建需要官方原生桌面入口。").before_send())?;
         let mut args = json!({
             "prompt":prompt, "target":{"type":"project","projectId":project,"environment":{"type":"local"}},
         });
@@ -445,12 +456,18 @@ impl Desktop {
     pub async fn authorize(self: &Arc<Self>, id: &str) -> Result<()> {
         self.session.require("readLive")?;
         let connection = self.session.connect().await?;
+        if let Some(native) = connection.native_tools() {
+            self.check_instance(&connection).await;
+            self.native_read(&native, id).await?;
+            return Ok(());
+        }
         self.authorize_on(&connection, id).await
     }
     async fn authorize_on(&self, connection: &Arc<AppServerConnection>, id: &str) -> Result<()> {
         self.check_instance(connection).await;
         self.require_route(connection, id).await?;
-        if connection.is_native() {
+        if let Some(native) = connection.native_tools() {
+            self.native_read(&native, id).await?;
             return Ok(());
         }
         self.hydrate_project_assignment(id).await?;
@@ -551,8 +568,10 @@ impl Desktop {
     }
     pub async fn snapshot(self: &Arc<Self>, id: &str) -> Result<Value> {
         let connection = self.session.connect().await?;
-        if connection.is_native() {
-            return self.native_snapshot(&connection, id, None).await;
+        if let Some(native) = connection.native_tools() {
+            if connection.is_native() || self.require_route(&connection, id).await.is_err() {
+                return self.native_snapshot(&native, id, None).await;
+            }
         }
         let (follow, _) = self.connected_follow(id).await?;
         let snapshot = follow.state.read().await.snapshot();
@@ -563,11 +582,14 @@ impl Desktop {
         let mut failures = 0;
         while !self.cancel.is_cancelled() {
             let attempt = async {
-                self.session.require("readLive")?;
                 let connection = self.session.connect().await?;
-                if connection.is_native() {
+                self.session.require("readLive")?;
+                if let Some(native) = connection.native_tools() {
                     self.check_instance(&connection).await;
-                    return self.follow_native(&connection, &id, &follow).await;
+                    if connection.is_native() || self.require_route(&connection, &id).await.is_err()
+                    {
+                        return self.follow_native(&native, &id, &follow).await;
+                    }
                 }
                 self.authorize_on(&connection, &id).await?;
                 let mut events = connection.subscribe();
@@ -744,6 +766,10 @@ impl Desktop {
             }
             let snapshot = self.native_snapshot(connection, id, history_ready).await?;
             Self::publish_native(follow, &connection.id, snapshot);
+            let current = self.session.connect().await?;
+            if !current.is_native() && self.require_route(&current, id).await.is_ok() {
+                return Ok(());
+            }
             // 有订阅时仅低频核对未写入会话文件的状态。首轮还没落库时沿用短间隔读取。
             refresh.reset_after(if rollout.is_some() {
                 Duration::from_secs(15)
@@ -823,6 +849,9 @@ impl Desktop {
         let lock = self.queue_lock(id).await;
         let _guard = lock.lock().await;
         let (follow, connection) = self.connected_follow(id).await?;
+        if connection.is_native() {
+            return Err(BridgeError::unavailable("此聊天的控制通道尚未就绪。").before_send());
+        }
         if follow.state.read().await.active_turn() != Some(turn_id) {
             return Err(BridgeError::new(409, "任务已变化，请刷新后再停止。").before_send());
         }
@@ -851,6 +880,43 @@ impl Desktop {
         self.session.require("resume")?;
         let lock = self.queue_lock(id).await;
         let _guard = lock.lock().await;
+        let connection = self
+            .session
+            .connect()
+            .await
+            .map_err(BridgeError::before_send)?;
+        if let Some(native) = connection.native_tools() {
+            let snapshot = self
+                .native_snapshot(&native, id, None)
+                .await
+                .map_err(BridgeError::before_send)?;
+            if snapshot["thread"]["status"] == "active"
+                || snapshot["thread"]["status"]["type"] == "active"
+                || snapshot["turns"]
+                    .as_array()
+                    .and_then(|turns| turns.last())
+                    .is_none_or(|turn| {
+                        turn["id"] != turn_id
+                            || !matches!(turn["status"].as_str(), Some("failed" | "interrupted"))
+                    })
+            {
+                return Err(BridgeError::new(
+                    409,
+                    "仅能继续最后一个失败或停止的任务，请刷新确认。",
+                )
+                .before_send());
+            }
+            let prompt = format!("请继续本聊天中轮次 {turn_id} 未完成的任务。先核对已有结果，避免重复已经完成的操作；保留原任务约束。");
+            return self
+                .send_message(
+                    id,
+                    &prompt,
+                    &format!("continue-{}", crate::digest(turn_id)),
+                    &[],
+                    &MessageModel::default(),
+                )
+                .await;
+        }
         let (follow, connection) = self.connected_follow(id).await?;
         {
             let state = follow.state.read().await;
@@ -880,8 +946,50 @@ impl Desktop {
         request_id: &str,
         input: &Value,
     ) -> Result<Value> {
+        if self.session.capabilities()["native"] == true
+            && serde_json::from_str::<Value>(request_id)
+                .is_ok_and(|id| id[0] == "request_user_input_async")
+        {
+            self.session.require("asyncReplies")?;
+            let connection = self
+                .session
+                .connect()
+                .await
+                .map_err(BridgeError::before_send)?
+                .native_tools()
+                .ok_or_else(|| BridgeError::unavailable("官方消息通道已断开。").before_send())?;
+            let snapshot = self
+                .native_snapshot(&connection, id, None)
+                .await
+                .map_err(BridgeError::before_send)?;
+            let turns = snapshot["turns"].as_array().unwrap();
+            if input
+                .get("skipped")
+                .is_some_and(|skipped| skipped != &json!([]))
+            {
+                return Err(BridgeError::invalid("请完成每个问题后再发送回复。").before_send());
+            }
+            let prompt = crate::interactions::async_reply(turns, request_id, input)
+                .map_err(BridgeError::before_send)?;
+            let mut receipt = self
+                .send_message(
+                    id,
+                    &prompt,
+                    &format!("reply-{}", crate::digest(request_id)),
+                    &[],
+                    &MessageModel::default(),
+                )
+                .await?;
+            // 官方接受答案消息不等于原问题已结束；保留两个事实。
+            receipt["resolved"] = json!(false);
+            receipt["deliveryStatus"] = json!("accepted");
+            return Ok(receipt);
+        }
         self.session.require("interactions")?;
         let (follow, connection) = self.connected_follow(id).await?;
+        if connection.is_native() {
+            return Err(BridgeError::unavailable("此审批的原始控制连接已失效。").before_send());
+        }
         let mut changes = follow.updates.subscribe();
         let request = follow.state.read().await.requests.get(request_id).cloned();
         if let Some(request) = request {
@@ -967,10 +1075,9 @@ impl Desktop {
             &Self::queue_rows(connection, id).await?,
         ))
     }
-    pub async fn queue(&self, id: &str) -> Result<Value> {
+    pub async fn queue(self: &Arc<Self>, id: &str) -> Result<Value> {
         self.session.require("queue")?;
-        let connection = self.session.connect().await?;
-        self.authorize_on(&connection, id).await?;
+        let (_, connection) = self.connected_follow(id).await?;
         Self::read_queue(&connection, id).await
     }
     fn input(prompt: &str, images: &[Value]) -> Vec<Value> {
@@ -1108,12 +1215,12 @@ impl Desktop {
     ) -> Result<Value> {
         self.session.require("send")?;
         let connection = self.session.connect().await?;
-        if connection.is_native() {
-            self.require_route(&connection, id).await?;
+        if let Some(native) = connection.native_tools() {
+            self.require_route(&native, id).await?;
             let mut args = json!({"threadId":id,"hostId":"local","prompt":crate::images::context_prompt(prompt, images)});
             selection.apply(&mut args);
             let result = Self::native_call(
-                &connection,
+                &native,
                 id,
                 "send_message_to_thread",
                 args,
@@ -1235,10 +1342,8 @@ fn merge_native_snapshot(mut history: Value, payload: Value) -> Value {
     turns.sort_by_key(|turn| turn["startedAt"].as_i64().unwrap_or(0));
     let mut interactions = crate::interactions::async_pending(&turns);
     for entry in &mut interactions {
-        entry["replySupported"] = json!(false);
+        entry["replySupported"] = json!(true);
         entry["skipSupported"] = json!(false);
-        entry["desktopMessage"] =
-            json!("当前连接不支持在手机回复此问题，请在电脑上的 Codex 处理。");
     }
     history["interactions"] = json!(interactions);
     history["turns"] = Value::Array(turns);
@@ -1522,7 +1627,7 @@ mod native_tests {
             merged["interactions"][0]["questions"][0]["question"],
             "选择颜色"
         );
-        assert_eq!(merged["interactions"][0]["replySupported"], false);
+        assert_eq!(merged["interactions"][0]["replySupported"], true);
         assert_eq!(merged["interactions"][0]["skipSupported"], false);
         let reply = format!(
             "<send_user_message_question_reply>{}</send_user_message_question_reply>",

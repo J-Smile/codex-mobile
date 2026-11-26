@@ -45,6 +45,14 @@ pub(crate) async fn discover(paths: &Paths) -> Result<(Pipe, NativeOwner)> {
             );
         }
         let paths = paths.clone();
+        let expected_owner = if crate::runtime::SHARED_RUNTIME_VERIFIED {
+            crate::runtime::read_runtime(&paths.runtime_home)
+                .ok()
+                .flatten()
+                .map(|runtime| runtime.desktop)
+        } else {
+            None
+        };
         let (desktop, pipes) = tokio::task::spawn_blocking(move || -> Result<_> {
             let desktop = crate::runtime::discover_desktop(&paths)?
                 .filter(|desktop| desktop.running)
@@ -83,6 +91,12 @@ pub(crate) async fn discover(paths: &Paths) -> Result<(Pipe, NativeOwner)> {
             ) else {
                 continue;
             };
+            if expected_owner
+                .as_ref()
+                .is_some_and(|expected| expected != &owner)
+            {
+                continue;
+            }
             if found.is_some() {
                 return Err(BridgeError::unavailable(
                     "存在多个官方桌面原生实例，无法确定目标连接。",

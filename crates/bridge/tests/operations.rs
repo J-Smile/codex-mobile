@@ -5,6 +5,80 @@ use codex_mobile_bridge::{
 use serde_json::json;
 
 #[test]
+fn native_reply_delivery_and_continue_deduplicate_across_devices_and_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Operations::open(directory.path()).unwrap();
+    for (kind, target) in [
+        ("reply", "reply:chat:question"),
+        ("continue", "continue:chat:turn"),
+    ] {
+        store
+            .claim("device-one", kind, "hash", "native", target, kind)
+            .unwrap();
+        assert!(store
+            .claim("device-two", kind, "hash", "native", target, kind)
+            .is_err());
+        store.finish("device-one", kind, &Ok(json!({"status":"accepted","deliveryStatus":"accepted","resolved":false,"answer":"private-answer"}))).unwrap();
+        assert!(store
+            .claim("device-two", kind, "hash", "native", target, kind)
+            .is_err());
+    }
+    drop(store);
+    let store = Operations::open(directory.path()).unwrap();
+    let mut entries = vec![
+        json!({"id":"question","source":"async-message","replySupported":true}),
+        json!({"id":"question","kind":"approval"}),
+    ];
+    store.interaction_delivery("chat", &mut entries).unwrap();
+    assert_eq!(entries[0]["deliveryStatus"], "accepted");
+    assert_eq!(entries[0]["replySupported"], false);
+    assert!(entries[1].get("deliveryStatus").is_none());
+    assert!(!serde_json::to_string(&entries)
+        .unwrap()
+        .contains("private-answer"));
+    assert_eq!(
+        store.lookup("device-two", &["reply".into()]).unwrap()[0]["phase"],
+        "missing"
+    );
+    assert!(!store.lookup("device-one", &["reply".into()]).unwrap()[0]
+        .to_string()
+        .contains("private-answer"));
+}
+
+#[test]
+fn unsent_reply_is_retryable_but_crashed_delivery_remains_unknown_after_closure() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Operations::open(directory.path()).unwrap();
+    let target = "reply:chat:question";
+    store
+        .claim("device-one", "reply", "hash", "native", target, "reply")
+        .unwrap();
+    store
+        .finish(
+            "device-one",
+            "reply",
+            &Err(BridgeError::unavailable("offline").before_send()),
+        )
+        .unwrap();
+    let mut entries = vec![json!({"id":"question","source":"async-message"})];
+    store.interaction_delivery("chat", &mut entries).unwrap();
+    assert!(entries[0]["deliveryStatus"].is_null());
+    assert_eq!(entries[0]["replySupported"], true);
+    store
+        .claim("device-two", "reply", "hash", "native", target, "reply")
+        .unwrap();
+    drop(store);
+    let store = Operations::open(directory.path()).unwrap();
+    store.close_unknown("device-two", "reply").unwrap();
+    store.interaction_delivery("chat", &mut entries).unwrap();
+    assert_eq!(entries[0]["deliveryStatus"], "unknown");
+    assert_eq!(entries[0]["replySupported"], false);
+    assert!(store
+        .claim("device-one", "reply", "hash", "native", target, "reply")
+        .is_err());
+}
+
+#[test]
 fn creation_receipt_does_not_accept_first_turn_and_never_recreates() {
     let directory = tempfile::tempdir().unwrap();
     let store = Operations::open(directory.path()).unwrap();

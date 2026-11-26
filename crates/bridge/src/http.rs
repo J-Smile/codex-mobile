@@ -744,6 +744,15 @@ impl Bridge {
                 "settings" => "settings",
                 "resume" => "resume",
                 "interrupt" => "interrupt",
+                "interactions"
+                    if self.session.capabilities()["native"] == true
+                        && parts
+                            .get(4)
+                            .and_then(|id| serde_json::from_str::<Value>(id).ok())
+                            .is_some_and(|id| id[0] == "request_user_input_async") =>
+                {
+                    "asyncReplies"
+                }
                 "interactions" => "interactions",
                 "goal" => "goals",
                 "open" => "desktopNavigation",
@@ -977,6 +986,30 @@ impl Bridge {
     }
     async fn enrich(&self, id: &str, mut snapshot: Value, view: &LiveView) -> Value {
         snapshot["capabilities"] = self.session.capabilities();
+        if snapshot["syncMode"] == "desktop-poll" {
+            for capability in [
+                "queue",
+                "queueStart",
+                "queueEdit",
+                "queueReorder",
+                "interrupt",
+                "interactions",
+            ] {
+                snapshot["capabilities"][capability] = json!(false);
+            }
+        }
+        if snapshot["capabilities"]["native"] == true {
+            if let Some(entries) = snapshot["interactions"].as_array_mut() {
+                if let Err(error) = self
+                    .submissions
+                    .operations
+                    .interaction_delivery(id, entries)
+                {
+                    snapshot["capabilities"]["asyncReplies"] = json!(false);
+                    snapshot["syncError"] = json!(error.message);
+                }
+            }
+        }
         let observed = (snapshot["syncMode"] == "desktop-poll")
             .then(|| snapshot["firstTurnObserved"].as_str())
             .flatten();

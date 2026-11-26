@@ -740,6 +740,25 @@ async fn serve(
                 json!({"jsonrpc":"2.0","id":value["id"],"error":{"code":-32000,"message":message}})
             }
         };
+        if value["method"] == "thread/resume" && response.get("error").is_none() {
+            let requests = mock
+                .pending_requests
+                .lock()
+                .await
+                .values()
+                .filter(|request| request["params"]["threadId"] == value["params"]["threadId"])
+                .cloned()
+                .collect::<Vec<_>>();
+            for request in requests {
+                if socket
+                    .send(Message::Text(request.to_string().into()))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
         if socket
             .send(Message::Text(response.to_string().into()))
             .await

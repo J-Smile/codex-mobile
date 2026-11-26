@@ -317,14 +317,14 @@ async fn update_settings_report_running_versions_without_waiting_for_app_server(
     assert_eq!(settings["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(
         settings["appServer"],
-        json!({"connected":false,"native":false,"version":null})
+        json!({"connected":false,"native":false,"controls":false,"version":null})
     );
     drop(agent);
     let connection = server.app.session.connect().await.unwrap();
     let settings = read().await;
     assert_eq!(
         settings["appServer"],
-        json!({"connected":true,"native":false,"version":"0.171.0-alpha.13"})
+        json!({"connected":true,"native":false,"controls":false,"version":"0.171.0-alpha.13"})
     );
     assert!(settings.get("token").is_none());
     assert!(settings.get("configured").is_none());
@@ -348,14 +348,14 @@ async fn update_settings_report_running_versions_without_waiting_for_app_server(
     connection.close();
     assert_eq!(
         read().await["appServer"],
-        json!({"connected":false,"native":false,"version":null})
+        json!({"connected":false,"native":false,"controls":false,"version":null})
     );
     *mock.user_agent.lock().await = "codex_cli_rs/0.172.0 (Mac OS 27.0.1; arm64)".into();
     mock.reject_init.store(false, Ordering::Release);
     assert!(server.app.session.connect().await.is_err());
     assert_eq!(
         read().await["appServer"],
-        json!({"connected":false,"native":false,"version":null})
+        json!({"connected":false,"native":false,"controls":false,"version":null})
     );
     server.stop().await.unwrap();
 }

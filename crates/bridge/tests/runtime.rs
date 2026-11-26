@@ -91,6 +91,15 @@ fn only_explicit_local_initialize_can_publish_a_connection() {
     assert!(!runtime::supported_initialize(
         &json!({"userAgent":"Codex Desktop/0.172.0 (new)"})
     ));
+    assert!(runtime::supported_initialize(
+        &json!({"userAgent":"Codex Desktop/0.171.0-alpha.13.2 (Windows 10.0.26300; x86_64) dumb (Codex Desktop; 26.1120.50957)"})
+    ));
+    for agent in [
+        "Codex Desktop/0.171.0-alpha.13.20 (unknown)",
+        "codex-mobile/0.171.0-alpha.13.2 (other client)",
+    ] {
+        assert!(!runtime::supported_initialize(&json!({"userAgent":agent})));
+    }
 }
 #[test]
 fn only_primary_stdio_invocations_are_eligible_for_brokering() {

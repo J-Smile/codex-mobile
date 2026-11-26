@@ -67,7 +67,7 @@ impl Operations {
             )
             .optional()?;
         let retry = if let Some((previous, phase, receipt, status)) = existing {
-            if previous != hash {
+            if previous != hash && !(kind == "reply" && phase == "not-dispatched") {
                 return Err(BridgeError::new(409, "操作编号已用于不同内容。"));
             }
             if phase == "accepted" {
@@ -87,6 +87,16 @@ impl Operations {
         } else {
             false
         };
+        if matches!(kind, "reply" | "continue") {
+            let handled: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM operations WHERE kind=? AND target=? AND owner<>? AND phase IN ('dispatching','unknown','accepted'))", params![kind,target,owner], |row| row.get(0))?;
+            if handled {
+                return Err(BridgeError::new(
+                    409,
+                    "这项操作已经提交，请等待聊天同步；不会重复发送。",
+                )
+                .before_send());
+            }
+        }
         let unresolved: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM operations WHERE owner=? AND target=? AND phase IN ('dispatching','unknown') AND closed=0)", params![owner,target], |row| row.get(0))?;
         if unresolved {
             return Err(
@@ -95,7 +105,7 @@ impl Operations {
             );
         }
         if retry {
-            transaction.execute("UPDATE operations SET phase='dispatching',instance=?,updated=?,closed=0 WHERE owner=? AND id=?",params![instance,crate::now_ms(),owner,id])?;
+            transaction.execute("UPDATE operations SET phase='dispatching',hash=?,instance=?,updated=?,closed=0 WHERE owner=? AND id=?",params![hash,instance,crate::now_ms(),owner,id])?;
         } else {
             transaction.execute("INSERT INTO operations(owner,id,hash,instance,target,kind,phase,updated) VALUES(?,?,?,?,?,?,'dispatching',?)",params![owner,id,hash,instance,target,kind,crate::now_ms()])?;
         }
@@ -105,7 +115,7 @@ impl Operations {
     pub fn finish(&self, owner: &str, id: &str, result: &Result<Value>) -> Result<()> {
         // 只保存必要的回执，不落提示词、附件或完整轮次内容。
         let (phase, receipt, status) = match result {
-            Ok(value) => ("accepted", Some(json!({"status":value["status"],"messageId":value["messageId"],"threadId":value["threadId"],"turnId":value["turn"]["id"],"firstTurnAccepted":value["firstTurnAccepted"],"firstTurnPending":value["firstTurnPending"],"execution":value["execution"],"resolved":value["resolved"],"accepted":value["status"]!="created"}).to_string()), None),
+            Ok(value) => ("accepted", Some(json!({"status":value["status"],"messageId":value["messageId"],"threadId":value["threadId"],"turnId":value["turn"]["id"],"firstTurnAccepted":value["firstTurnAccepted"],"firstTurnPending":value["firstTurnPending"],"execution":value["execution"],"resolved":value["resolved"],"deliveryStatus":value["deliveryStatus"],"accepted":value["status"]!="created"}).to_string()), None),
             Err(error) if error.before_send => ("not-dispatched", None, Some(error.status)),
             Err(error) => ("unknown", None, Some(error.status)),
         };
@@ -120,6 +130,31 @@ impl Operations {
         let mut statement = connection.prepare("SELECT id,kind,target,phase,updated FROM operations WHERE owner=? AND phase IN ('dispatching','unknown') AND closed=0 ORDER BY updated")?;
         let rows = statement.query_map([owner], |row| Ok(json!({"id":row.get::<_,String>(0)?,"kind":row.get::<_,String>(1)?,"target":row.get::<_,String>(2)?,"phase":row.get::<_,String>(3)?,"updatedAt":row.get::<_,i64>(4)?})))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+    /// 已授权聊天只展示回复投递状态，不返回其他手机的身份或答案。
+    pub fn interaction_delivery(&self, thread: &str, entries: &mut [Value]) -> Result<()> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection.prepare("SELECT phase FROM operations WHERE kind='reply' AND target=? AND (phase IN ('dispatching','unknown','not-dispatched') OR (phase='accepted' AND json_extract(receipt,'$.deliveryStatus')='accepted')) ORDER BY CASE phase WHEN 'accepted' THEN 0 WHEN 'not-dispatched' THEN 2 ELSE 1 END, updated DESC LIMIT 1")?;
+        for entry in entries {
+            if entry["source"] != "async-message" {
+                continue;
+            }
+            let Some(id) = entry["id"].as_str() else {
+                continue;
+            };
+            let phase: Option<String> = statement
+                .query_row([format!("reply:{thread}:{id}")], |row| row.get(0))
+                .optional()?;
+            if let Some(phase) = phase {
+                entry["deliveryStatus"] = if phase == "not-dispatched" {
+                    Value::Null
+                } else {
+                    json!(phase)
+                };
+                entry["replySupported"] = json!(phase == "not-dispatched");
+            }
+        }
+        Ok(())
     }
     /// 仅按当前拥有者查询；没有记录不代表尚未投递。
     pub fn lookup(&self, owner: &str, ids: &[String]) -> Result<Vec<Value>> {

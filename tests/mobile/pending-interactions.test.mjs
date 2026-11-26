@@ -236,3 +236,66 @@ test('不可回复或断线卡片不占用普通输入，连接恢复仍保留�
   assert.equal(f.events.at(-1)[1].expanded, false);
   assert.equal(f.app.draft.value.text.details, '尚未提交');
 });
+
+test('原生答案接受后保留问题并解锁输入，旧快照与重复点击不重发', async t => {
+  const entry = question({ source: 'async-message', skipSupported: false });
+  const f = fixture(t, [entry], async () => ({ resolved: false, deliveryStatus: 'accepted' }));
+  f.app.selectOption(1);
+  f.app.draft.value.text.details = '继续处理原任务';
+  await f.app.submit(); await settled();
+  assert.equal(f.app.active.value.id, entry.id);
+  assert.equal(f.app.draft.value.deliveryStatus, 'accepted');
+  assert.equal(f.app.draft.value.busy, false);
+  assert.equal(f.app.draft.value.minimized, true);
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  assert.deepEqual(questionAnswers(entry, f.app.draft.value), { choice: ['排队'], details: ['继续处理原任务'] });
+  f.props.interactions = [question({ ...entry, deliveryStatus: null })]; await settled();
+  assert.equal(f.app.draft.value.deliveryStatus, 'accepted');
+  await f.app.submit(); assert.equal(f.calls.length, 1);
+  f.props.interactions = []; await settled();
+  assert.equal(f.app.active.value, undefined);
+});
+
+test('投递状态刷新恢复且不挡住下一请求，回到同聊天也不可重复发送', async t => {
+  const sent = question({ deliveryStatus: 'accepted', replySupported: false });
+  const f = fixture(t, [sent, question({ id: 'next-request' })]);
+  assert.equal(f.app.active.value.id, 'next-request');
+  f.props.interactions = [sent]; await settled();
+  assert.equal(f.app.draft.value.minimized, true);
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  f.app.draft.value.minimized = false;
+  f.props.interactions = [structuredClone(sent)]; await settled();
+  assert.equal(f.app.draft.value.minimized, false);
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  f.props.threadId = 'other-chat'; f.props.interactions = []; await settled();
+  f.props.threadId = 'isolated-chat'; f.props.interactions = [sent]; await settled();
+  await f.app.submit(); assert.equal(f.calls.length, 0);
+  assert.equal(f.app.draft.value.deliveryStatus, 'accepted');
+});
+
+test('明确未投递恢复原答案可重试，未知投递收起且不重发', async t => {
+  const f = fixture(t, [question()], async count => { throw Object.assign(new Error('合成提交失败'), { outcome: count === 1 ? 'not-dispatched' : 'unknown' }); });
+  f.app.selectOption(0); f.app.draft.value.text.details = '保留草稿';
+  await f.app.submit(); await settled();
+  assert.equal(f.app.inactive.value, false);
+  assert.equal(f.app.draft.value.deliveryStatus, undefined);
+  await f.app.submit(); await settled();
+  assert.equal(f.app.draft.value.deliveryStatus, 'unknown');
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  await f.app.submit(); assert.equal(f.calls.length, 2);
+  f.props.interactions = [question({ deliveryStatus: null })]; await settled();
+  assert.equal(f.app.inactive.value, false);
+  assert.equal(f.app.draft.value.text.details, '保留草稿');
+});
+
+test('迟到的已发送回执不能改变新聊天同ID问题的状态', async t => {
+  let complete;
+  const f = fixture(t, [question()], () => new Promise(resolve => { complete = resolve; }));
+  f.app.selectOption(0); f.app.draft.value.text.details = '旧答案';
+  const request = f.app.submit();
+  f.props.threadId = 'other-chat'; await settled();
+  complete({ resolved: false, deliveryStatus: 'accepted' }); await request; await settled();
+  assert.equal(f.app.draft.value.deliveryStatus, undefined);
+  assert.equal(f.app.draft.value.minimized, false);
+  assert.equal(f.events.at(-1)[1].expanded, true);
+});

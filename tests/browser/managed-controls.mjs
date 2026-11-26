@@ -32,7 +32,7 @@ const server = http.createServer(async (request, response) => {
     const input = request.headers['content-type']?.includes('application/json') && bytes.length ? JSON.parse(bytes) : null;
     state.calls.push({ method: request.method, path: url.pathname, query: url.search, input });
     if (url.pathname === '/api/session') return json({ capabilities });
-    if (url.pathname === '/api/projects') return json({ projects: [project], capabilities: { native: false, create: true, images: true } });
+    if (url.pathname === '/api/projects') return json({ projects: [project], capabilities: { native: capabilities.native, create: true, images: true } });
     if (url.pathname === '/api/operations') return json({ operations: [], results: [] });
     if (url.pathname === '/api/update-settings') return json({ configured: false, version: '0.3.29' });
     if (url.pathname === '/api/threads') {
@@ -50,6 +50,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (url.pathname.endsWith('/history')) return json(snapshot());
     if (url.pathname.includes('/interactions/')) {
+      if (capabilities.asyncReplies && !capabilities.interactions) {
+        state.interactions[0].deliveryStatus = 'accepted'; state.interactions[0].replySupported = false;
+        publish(); return json({ resolved: false, deliveryStatus: 'accepted' });
+      }
       state.interactions = []; publish(); return json({ ok: true, resolved: true });
     }
     if (url.pathname.endsWith('/interrupt')) {
@@ -86,13 +90,14 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 const browser = await chromium.launch({ headless: true });
 try {
-  for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 900 }]) {
+  for (const native of [false, true]) for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 900 }]) {
+    Object.assign(capabilities, { native, interactions: true, asyncReplies: native, interrupt: true, queue: true });
     state = { calls: [], streams: new Map(), turns: [], interactions: [], queue: { revision: 'empty', messages: [] } };
     const context = await browser.newContext({ viewport, hasTouch: true, isMobile: viewport.width < 900, serviceWorkers: 'block', reducedMotion: 'reduce' });
     await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const page = await context.newPage(); page.setDefaultTimeout(12000);
     page.on('pageerror', error => errors.push({ viewport, message: error.message }));
-    const result = { viewport, ids: ['MANAGED-003', 'MANAGED-004', 'MANAGED-005', 'MANAGED-006'], status: 'passed' };
+    const result = { viewport, native, ids: ['MANAGED-003', 'MANAGED-004', 'MANAGED-005', 'MANAGED-006', ...(native ? ['CONTROL-014'] : [])], status: 'passed' };
     try {
       await page.goto(origin + '/?thread=' + thread.id);
       await page.getByRole('heading', { name: thread.title, exact: true }).waitFor();
@@ -142,9 +147,32 @@ try {
       const writes = state.calls.filter(call => call.path.includes('/interactions/'));
       assert.deepEqual(writes.map(call => call.input), [{ answers: { answer: ['合成回答'] } }, { decision: 'decline' }]);
       assert.equal(await composer.innerText(), '');
+      // 原生仅开放答案投递；刷新仍保留状态，普通输入和继续任务都可操作。
+      Object.assign(capabilities, { native: true, interactions: false, asyncReplies: true, interrupt: false, queue: false });
+      state.turns = [];
+      state.interactions = [{ id: 'native-question', source: 'async-message', turnId: 'native-question-turn', kind: 'questions', title: '问题', message: '', replySupported: true, skipSupported: false, questions: [{ id: 'native-answer', question: '原生合成问题', header: '', options: [] }] }]; publish();
+      await page.getByRole('textbox', { name: '你的回复', exact: true }).fill('原生合成答案');
+      await page.locator('.interaction-submit').click();
+      await page.getByRole('button', { name: '答案已发送', exact: true }).waitFor();
+      await composer.fill('答案送达后的普通草稿');
+      await page.reload();
+      await page.getByRole('button', { name: '答案已发送', exact: true }).waitFor();
+      assert.equal(await composer.innerText(), '答案送达后的普通草稿');
+      await page.getByRole('button', { name: '答案已发送', exact: true }).click();
+      await page.getByText('答案已送达，问题状态等待同步。你可以继续发送消息。', { exact: true }).waitFor();
+      await composer.fill('');
+      state.turns = [{ id: 'native-stopped', status: 'interrupted', items: [] }]; publish();
+      await Promise.all([
+        page.waitForResponse(response => response.url().endsWith('/resume') && response.request().method() === 'POST' && response.status() === 200),
+        page.getByRole('button', { name: '继续任务', exact: true }).click(),
+      ]);
+      assert.equal(state.calls.filter(call => call.path.includes('/interactions/native-question')).length, 1);
+      assert.equal(state.calls.filter(call => call.path.endsWith('/resume')).length, 2);
+      result.ids.push('INTERACT-008', 'CONTROL-012');
+      Object.assign(capabilities, { native: false, interactions: true, asyncReplies: false, interrupt: true, queue: true });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     } catch (error) { result.status = 'failed'; result.error = error.stack || String(error); console.error(result.error); }
-    finally { await page.screenshot({ path: path.join(output, `managed-controls-${viewport.width}.png`) }); result.calls = state.calls; results.push(result); await context.close(); }
+    finally { await page.screenshot({ path: path.join(output, `managed-controls-${native ? 'native-' : ''}${viewport.width}.png`) }); result.calls = state.calls; results.push(result); await context.close(); }
   }
 } finally {
   fs.writeFileSync(path.join(output, 'managed-controls.json'), JSON.stringify({ environment: 'Docker Chromium with synthetic HTTP/SSE', results, errors }, null, 2));

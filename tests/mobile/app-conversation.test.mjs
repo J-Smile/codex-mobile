@@ -27,7 +27,7 @@ function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
   const queueSnapshots = [];
   const state = {
     creationSource: ref('source'),
-    capabilities: ref({ send: true, create: true, resume: true, interrupt: true, images: true }), operationsReady: ref(true), unresolvedOperations: ref([]),
+    capabilities: ref({ send: true, create: true, resume: true, interrupt: true, images: true, queue: true }), operationsReady: ref(true), unresolvedOperations: ref([]),
     modelSelection: ref({}), modelDrafts: reactive({}),
     authenticated: ref(true), selectedId: ref('child'), selectedProjectId: ref('project'),
     selectedThread: ref({ id: 'child', title: '子对话' }), threads: ref([]),
@@ -89,6 +89,15 @@ test('原生通道忙时仍可追加文字，不使用 CLI 队列且图片草稿
   app.draft.value='带图片';app.draftImages.value=[{id:'image',name:'test.png'}];
   await app.send();assert.equal(calls.length,1);assert.equal(app.draftImages.value.length,1);
   assert.equal(app.draft.value,'带图片');
+});
+test('同实例原生消息通道接入控制后，忙时提交官方队列', async t => {
+  const calls = [];
+  const app = fixture(t, async (url, options) => { calls.push(JSON.parse(options.body)); return { queued: true }; });
+  app.capabilities.value = { send: true, native: true, queue: true, interrupt: true };
+  app.turns.value = [{ id: 'busy', status: 'inProgress', items: [] }];
+  assert.equal(app.composerAction.value.label, '加入队列');
+  await app.send();
+  assert.equal(calls[0].mode, 'queue');
 });
 const snapshot = (from, through, nextCursor) => ({ capabilities: { send: true, resume: true, interrupt: true }, ...page(from, through, nextCursor), connection: 'live' });
 const saved = () => ({ threadId: 'parent', projectId: 'project', thread: { id: 'parent', title: '父对话' },

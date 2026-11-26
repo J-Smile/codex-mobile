@@ -96,6 +96,50 @@ async fn official_instance_authorizes_registered_routes_and_reconnects_without_r
 }
 
 #[tokio::test]
+async fn combined_official_connection_keeps_messages_on_app_tools_and_approvals_on_rpc() {
+    let f = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&f).await;
+    let desktop = desktop(&f).await;
+    let id = create(&desktop, &f, &mock).await;
+    let control = desktop.session.connect().await.unwrap();
+    let (peer, official) = crate::native_test_support::NativePipe::start(&f.paths).await;
+    peer.reads.lock().await.insert(id.clone(),json!({"schemaVersion":1,"thread":{"id":id,"kind":"codex","hostId":"local","status":"idle"},"turns":[]}));
+    control.bind_official(official.clone()).unwrap();
+    let before = mock.count("turn/start").await;
+    desktop
+        .send_message(
+            &id,
+            "官方消息",
+            "combined-message",
+            &[],
+            &MessageModel::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(peer.count("send_message_to_thread").await, 1);
+    assert_eq!(mock.count("turn/start").await, before);
+    let watch = desktop.subscribe(&id);
+    desktop.snapshot(&id).await.unwrap();
+    mock.server_request(json!({"id":91,"method":"item/commandExecution/requestApproval","params":{"threadId":id,"turnId":"approval-turn","command":"echo fixed","reason":"合成审批表单"}})).await;
+    let pending = snapshot_matching(&desktop, &id, |snapshot| {
+        !snapshot["interactions"].as_array().unwrap().is_empty()
+    })
+    .await;
+    let key = pending["interactions"][0]["id"].as_str().unwrap();
+    let reply = desktop
+        .reply(&id, key, &json!({"decision":"decline"}))
+        .await
+        .unwrap();
+    assert_eq!(reply["resolved"], true);
+    assert_eq!(peer.count("send_message_to_thread").await, 1);
+    official.close();
+    assert!(!control.is_alive());
+    drop(watch);
+    desktop.close().await;
+    desktop.session.close().await;
+}
+
+#[tokio::test]
 async fn controls_preserve_request_identity_and_queue_atomically_with_attachments() {
     let f = Fixture::new();
     let mock = MockDesktop::start_control_fixture(&f).await;
@@ -365,16 +409,7 @@ async fn reconnect_revokes_old_request_keys_without_submitting_to_a_new_generati
     let generation = desktop.session.connect().await.unwrap().id.clone();
     let mut updates = desktop.subscribe(&id);
     mock.disconnect();
-    tokio::time::timeout(Duration::from_secs(4), async {
-        loop {
-            if desktop.session.connect().await.unwrap().id != generation {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
+    // 订阅自身恢复连接；不能靠测试主动 connect 掩盖断线后的能力门禁死锁。
     tokio::time::timeout(Duration::from_secs(4), async {
         loop {
             let view = updates.borrow().clone();
@@ -384,10 +419,9 @@ async fn reconnect_revokes_old_request_keys_without_submitting_to_a_new_generati
                 .is_some_and(|owner| owner != &generation)
                 && view.error.is_none()
             {
-                assert!(view.snapshot.unwrap()["interactions"]
-                    .as_array()
-                    .unwrap()
-                    .is_empty());
+                let snapshot = view.snapshot.unwrap();
+                assert_eq!(snapshot["interactions"].as_array().unwrap().len(), 1);
+                assert_ne!(snapshot["interactions"][0]["id"], old);
                 break;
             }
             updates.changed().await.unwrap();

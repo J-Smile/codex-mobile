@@ -166,6 +166,167 @@ async fn start_native_http(artifact: &Path) -> (Server, reqwest::Client, String,
 }
 
 #[tokio::test]
+#[ignore = "需明确授权的验收聊天和原问题，仅投递一次合成答案；不操作窗口或批准操作"]
+async fn official_native_http_async_answer_is_delivered_once_and_restored() {
+    let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap();
+    let request = std::env::var("MOBILE_ACCEPTANCE_QUESTION").unwrap();
+    let answer = std::env::var("MOBILE_ACCEPTANCE_ANSWER").unwrap();
+    let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
+    assert!(
+        std::env::var_os("MOBILE_ACCEPTANCE_DATA").is_some(),
+        "使用固定隔离账本验证服务重启"
+    );
+    let (server, http, cookie, _) = start_native_http(&artifact).await;
+    let events_url = format!("http://{}/api/threads/{thread}/events", server.address);
+    let response = http
+        .get(&events_url)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    let before = assert_native_snapshot(response, &thread).await;
+    assert!(
+        before["thread"]["status"] == "idle" || before["thread"]["status"]["type"] == "idle",
+        "验收聊天必须空闲"
+    );
+    let question = before["interactions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == request)
+        .expect("找不到明确授权的原问题");
+    assert_eq!(question["questions"].as_array().unwrap().len(), 1);
+    let item = question["questions"][0]["id"].as_str().unwrap();
+    let input = json!({"answers":{item:[answer]}});
+    let encoded =
+        percent_encoding::utf8_percent_encode(&request, percent_encoding::NON_ALPHANUMERIC);
+    let path = format!("/api/threads/{thread}/interactions/{encoded}");
+    for _ in 0..2 {
+        let response = http
+            .post(format!("http://{}{path}", server.address))
+            .header("cookie", &cookie)
+            .header("x-codex-mobile-contract", "2")
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let receipt: Value = response.json().await.unwrap();
+        std::fs::write(
+            artifact.join("native-answer-receipt.json"),
+            serde_json::to_vec_pretty(&receipt).unwrap(),
+        )
+        .unwrap();
+        assert!(status.is_success(), "{status}: {receipt}");
+        assert_eq!(receipt["deliveryStatus"], "accepted");
+        assert_eq!(receipt["resolved"], false);
+    }
+    let after = tokio::time::timeout(Duration::from_secs(180), async {
+        loop {
+            let response = http
+                .get(&events_url)
+                .header("cookie", &cookie)
+                .send()
+                .await
+                .unwrap();
+            let snapshot = assert_native_snapshot(response, &thread).await;
+            let new_turns = snapshot["turns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|turn| {
+                    !before["turns"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|old| old["id"] == turn["id"])
+                })
+                .collect::<Vec<_>>();
+            assert!(new_turns.len() <= 1, "重复请求产生了多个新轮次");
+            if new_turns.first().is_some_and(|turn| {
+                turn["status"] == "completed"
+                    && turn["items"].as_array().unwrap().iter().any(|item| {
+                        item["type"] == "agentMessage"
+                            && item["text"]
+                                .as_str()
+                                .is_some_and(|text| text.contains(&answer))
+                    })
+            }) {
+                break snapshot;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    })
+    .await
+    .expect("官方新轮次未确认收到合成答案；不会重发");
+    let pending = after["interactions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == request)
+        .unwrap();
+    assert_eq!(pending["deliveryStatus"], "accepted");
+    assert_eq!(pending["replySupported"], false);
+    let last = after["turns"].as_array().unwrap().last().unwrap()["id"].clone();
+    let response = http
+        .post(format!(
+            "http://{}/api/threads/{thread}/resume",
+            server.address
+        ))
+        .header("cookie", &cookie)
+        .header("x-codex-mobile-contract", "2")
+        .json(&json!({"turnId":last}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 409, "已完成轮次不得继续");
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["outcome"],
+        "not-dispatched"
+    );
+    server.stop().await.unwrap();
+    let (server, http, cookie, _) = start_native_http(&artifact).await;
+    let response = http
+        .post(format!("http://{}{path}", server.address))
+        .header("cookie", &cookie)
+        .header("x-codex-mobile-contract", "2")
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["deliveryStatus"],
+        "accepted"
+    );
+    let response = http
+        .get(format!(
+            "http://{}/api/threads/{thread}/events",
+            server.address
+        ))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    let restored = assert_native_snapshot(response, &thread).await;
+    assert_eq!(
+        restored["turns"].as_array().unwrap().last().unwrap()["id"],
+        last
+    );
+    assert_eq!(
+        restored["interactions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == request)
+            .unwrap()["deliveryStatus"],
+        "accepted"
+    );
+    std::fs::write(artifact.join("native-answer-result.json"), serde_json::to_vec_pretty(&json!({"delivered":true,"newTurnId":last,"resolved":false,"duplicateRejected":true,"restartRestored":true,"completedTurnCannotContinue":true,"windowActions":0})).unwrap()).unwrap();
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
 #[ignore = "需要已登录官方 Windows 桌面与授权聊天，仅验证文件引用读取，不发送消息"]
 async fn official_native_context_references_use_scoped_project() {
     let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap();

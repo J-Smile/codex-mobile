@@ -35,6 +35,7 @@ export interface PendingInteraction {
   fields?: InteractionField[];
   approveLabel?: string;
   desktopMessage?: string;
+  deliveryStatus?: 'accepted' | 'dispatching' | 'unknown' | null;
 }
 
 export interface InteractionDraft {
@@ -47,6 +48,7 @@ export interface InteractionDraft {
   minimized: boolean;
   busy: boolean;
   error: string;
+  deliveryStatus?: NonNullable<PendingInteraction['deliveryStatus']>;
 }
 
 export interface InteractionSubmission {
@@ -83,13 +85,18 @@ export class InteractionReplyState {
       const requestKey = interactionRequestKey(threadId, entry);
       const draft = this.drafts[entry.id];
       if (draft?.requestKey === requestKey) {
+        if (entry.deliveryStatus !== undefined && draft.deliveryStatus !== 'accepted' && draft.deliveryStatus !== (entry.deliveryStatus ?? undefined)) {
+          draft.deliveryStatus = entry.deliveryStatus ?? undefined;
+          draft.busy = false;
+          draft.minimized = !!entry.deliveryStatus;
+        }
         if (entry.source === 'async-message') {
           const selected = previous.find(value => value.id === entry.id)?.questions?.[draft.step]?.id;
           draft.step = Math.max(0, entry.questions?.findIndex(question => question.id === selected) ?? 0);
         }
         continue;
       }
-      this.drafts[entry.id] = { requestKey, choices: {}, text: {}, skipped: {}, fields: {}, step: 0, minimized: false, busy: false, error: '' };
+      this.drafts[entry.id] = { requestKey, choices: {}, text: {}, skipped: {}, fields: {}, step: 0, minimized: !!entry.deliveryStatus, busy: false, error: '', deliveryStatus: entry.deliveryStatus ?? undefined };
     }
   }
 
@@ -100,7 +107,7 @@ export class InteractionReplyState {
   begin(entry: PendingInteraction): InteractionSubmission | undefined {
     const draft = this.drafts[entry.id];
     const requestKey = interactionRequestKey(this.threadId, entry);
-    if (!draft || draft.busy || draft.requestKey !== requestKey || !this.pending.some((pending) => interactionRequestKey(this.threadId, pending) === requestKey)) return;
+    if (!draft || draft.busy || draft.deliveryStatus || draft.requestKey !== requestKey || !this.pending.some((pending) => interactionRequestKey(this.threadId, pending) === requestKey)) return;
     draft.busy = true;
     draft.error = '';
     return { threadId: this.threadId, requestKey, draft };

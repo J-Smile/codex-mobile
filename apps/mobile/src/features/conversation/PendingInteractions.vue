@@ -18,8 +18,8 @@ const answerInput = ref<HTMLTextAreaElement | HTMLInputElement>();
 const replying = ref(false);
 watch(() => props.keyboardOpen, open => { if (!open) replying.value = false; });
 watch([() => props.threadId, () => props.interactions], ([threadId, entries]) => replies.sync(threadId, entries), { immediate: true });
-const active = computed(() => replies.pending[0]);
-watch(active, (value) => {
+const active = computed(() => replies.pending.find(value => !replies.drafts[value.id]?.deliveryStatus) || replies.pending[0]);
+watch([active, () => replies.threadId], ([value]) => {
   if (!value) return;
   entry.value = value;
   draft.value = replies.drafts[value.id];
@@ -32,12 +32,13 @@ watch([answerInput, () => draft.value?.text[question.value?.id || '']], async ([
   field.style.height = 'auto';
   field.style.height = Math.min(field.scrollHeight, 96) + 'px';
 }, { flush: 'post' });
-const inactive = computed(() => props.disabled || !active.value || !!draft.value?.busy);
+const inactive = computed(() => props.disabled || !active.value || !!draft.value?.busy || !!draft.value?.deliveryStatus);
+const deliveryLabel = computed(() => draft.value?.deliveryStatus === 'accepted' ? '答案已发送' : draft.value?.deliveryStatus === 'dispatching' ? '回复正在提交' : '回复结果待确认');
 const currentAnswered = computed(() => !!(entry.value && draft.value && question.value && questionAnswers(entry.value, draft.value)[question.value.id]?.length));
 const lastQuestion = computed(() => (draft.value?.step || 0) >= questions.value.length - 1);
-watch([active, minimized, () => props.disabled], () => {
+watch([active, minimized, () => props.disabled, () => draft.value?.deliveryStatus], () => {
   if (!active.value || minimized.value) replying.value = false;
-  emit('state', { pending: !!active.value, expanded: !!active.value?.replySupported && !props.disabled && !minimized.value });
+  emit('state', { pending: !!active.value, expanded: !!active.value?.replySupported && !props.disabled && !minimized.value && !draft.value?.deliveryStatus });
 }, { immediate: true });
 defineExpose({ minimize });
 
@@ -116,14 +117,23 @@ async function submit(action = 'accept') {
   if (!submission) return;
   if (localSkip) { replies.finish(submission); return; }
   try {
-    const result = await request<{ resolved?: boolean }>(threadUrl(submission.threadId, 'interactions/' + encodeURIComponent(current.id)), { method: 'POST', body: JSON.stringify(payload) });
+    const result = await request<{ resolved?: boolean; deliveryStatus?: PendingInteraction['deliveryStatus'] }>(threadUrl(submission.threadId, 'interactions/' + encodeURIComponent(current.id)), { method: 'POST', body: JSON.stringify(payload) });
+    if (result?.deliveryStatus === 'accepted' && result.resolved === false) {
+      submission.draft.deliveryStatus = 'accepted';
+      submission.draft.busy = false;
+      submission.draft.minimized = true;
+      return;
+    }
     if (result?.resolved === false) {
       submission.draft.error = '回复已投递，正在等待运行时确认；不会重复发送。';
       return;
     }
     replies.finish(submission);
   } catch (failure) {
-    replies.fail(submission, (failure as Error).message);
+    const error = failure as Error & { outcome?: string };
+    if (error.outcome === 'not-dispatched') submission.draft.deliveryStatus = undefined;
+    else if (error.outcome === 'unknown') { submission.draft.deliveryStatus = 'unknown'; submission.draft.minimized = true; }
+    replies.fail(submission, error.message);
     await nextTick();
     if (draft.value === submission.draft) responseBody.value?.scrollTo({ top: 0, behavior: 'instant' });
   }
@@ -142,7 +152,7 @@ function advance() {
   <CollapseMotion class="pending-interactions" :class="{ 'has-pending': !!active || !!entry, 'is-minimized': minimized, 'keyboard-open': keyboardOpen, 'is-replying': replying }" :open="!!active" @focusin="replying = !!active && !minimized" @after-close="afterClose">
     <section v-if="entry && draft" :key="draft.requestKey" class="pending-interaction" :aria-labelledby="prefix + '-title'" :aria-busy="draft.busy">
       <button v-if="minimized" ref="reopen" type="button" class="interaction-reopen" :aria-expanded="false" @click="draft.minimized = false; emit('expand')">
-        <ChatDotRound /><span :id="prefix + '-title'">{{ entry.kind === 'questions' ? '有问题待回复' : entry.title }}</span><ArrowDown />
+        <ChatDotRound /><span :id="prefix + '-title'">{{ draft.deliveryStatus ? deliveryLabel : entry.kind === 'questions' ? '有问题待回复' : entry.title }}</span><ArrowDown />
       </button>
       <div v-else class="interaction-heading">
         <ChatDotRound /><h3 :id="prefix + '-title'">{{ entry.kind === 'questions' ? '问题' : entry.title }}</h3>
@@ -151,7 +161,12 @@ function advance() {
         <button type="button" class="interaction-close" :disabled="draft.busy" :aria-label="entry.kind === 'questions' ? '收起待回复的问题' : '收起待处理请求'" @click="minimize"><Close /></button>
       </div>
       <CollapseMotion class="interaction-body" :open="!minimized" :focus-target="reopen">
-        <template v-if="!entry.replySupported">
+        <div v-if="draft.deliveryStatus" class="interaction-scroll" role="status">
+          <p class="interaction-message">{{ deliveryLabel }}</p>
+          <p class="muted small">{{ draft.deliveryStatus === 'accepted' ? '答案已送达，问题状态等待同步。你可以继续发送消息。' : '正在核对已提交的回复，不会重复发送。你可以继续发送消息。' }}</p>
+          <p v-for="item in questions" :key="item.id" class="question-prompt">{{ item.question }}</p>
+        </div>
+        <template v-else-if="!entry.replySupported">
           <div class="interaction-scroll">
           <p v-if="entry.message" class="interaction-message">{{ entry.message }}</p>
           <pre v-if="entry.detail" class="interaction-detail">{{ entry.detail }}</pre>

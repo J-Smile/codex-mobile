@@ -168,6 +168,7 @@ struct ServerRequest {
 struct Shared {
     runtime: Mutex<Option<(std::path::PathBuf, crate::runtime::RuntimeInfo)>>,
     native: Option<crate::native::NativeOwner>,
+    official: Mutex<Option<Arc<AppServerConnection>>>,
     pending: Mutex<HashMap<String, Pending>>,
     requests: Mutex<HashMap<String, ServerRequest>>,
     alive: Arc<AtomicBool>,
@@ -219,6 +220,7 @@ impl AppServerConnection {
         let shared = Arc::new(Shared {
             runtime: Mutex::new(None),
             native: None,
+            official: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             requests: Mutex::new(HashMap::new()),
             alive: alive.clone(),
@@ -270,6 +272,7 @@ impl AppServerConnection {
         let shared = Arc::new(Shared {
             runtime: Mutex::new(None),
             native: Some(owner),
+            official: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             requests: Mutex::new(HashMap::new()),
             alive: alive.clone(),
@@ -303,6 +306,53 @@ impl AppServerConnection {
     pub fn is_native(&self) -> bool {
         self.shared.native.is_some()
     }
+    pub fn native_tools(self: &Arc<Self>) -> Option<Arc<Self>> {
+        if self.is_native() {
+            Some(self.clone())
+        } else {
+            self.shared.official.lock().unwrap().clone()
+        }
+    }
+    pub(crate) fn bind_official(self: &Arc<Self>, official: Arc<Self>) -> Result<()> {
+        let same_owner =
+            self.shared
+                .runtime
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(_, runtime)| {
+                    official
+                        .shared
+                        .native
+                        .as_ref()
+                        .is_some_and(|owner| owner.desktop == runtime.desktop)
+                });
+        if !same_owner || !official.is_alive() || !official.owner_valid() {
+            return Err(
+                BridgeError::unavailable("控制通道与官方消息通道不属于同一桌面实例。")
+                    .before_send(),
+            );
+        }
+        let mut events = official.subscribe();
+        let connection = Arc::downgrade(self);
+        let cancel = self.shared.cancel.clone();
+        *self.shared.official.lock().unwrap() = Some(official);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    event = events.recv() => match event {
+                        Ok(AppServerEvent::Disconnected { .. }) | Err(broadcast::error::RecvError::Closed) => {
+                            if let Some(connection) = connection.upgrade() { connection.close(); }
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        Ok(())
+    }
     pub fn owner_valid(&self) -> bool {
         self.shared
             .native
@@ -312,6 +362,13 @@ impl AppServerConnection {
 
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
+            && self
+                .shared
+                .official
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_none_or(|official| official.is_alive() && official.owner_valid())
     }
     pub fn bind_runtime(
         &self,
@@ -392,6 +449,14 @@ impl AppServerConnection {
             key,
             delivery: delivery.clone(),
         };
+        if method == "thread/resume" {
+            // 退订期间可能已由电脑处理；只接受本次订阅重新投递的待处理原请求。
+            self.shared
+                .requests
+                .lock()
+                .unwrap()
+                .retain(|_, request| request.message["params"]["threadId"] != params["threadId"]);
+        }
         let message = Message::Text(
             json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
                 .to_string()
@@ -483,6 +548,9 @@ impl AppServerConnection {
     pub fn close(&self) {
         self.alive.store(false, Ordering::Release);
         self.shared.cancel.cancel();
+        if let Some(official) = self.shared.official.lock().unwrap().take() {
+            official.close();
+        }
     }
 }
 impl Drop for AppServerConnection {

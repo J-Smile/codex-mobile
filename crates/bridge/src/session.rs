@@ -32,7 +32,12 @@ impl Session {
     }
     #[cfg(test)]
     pub(crate) fn install_native(&self, connection: Arc<AppServerConnection>) {
-        assert!(connection.is_native() && connection.is_alive() && connection.owner_valid());
+        assert!(
+            connection.is_alive()
+                && connection
+                    .native_tools()
+                    .is_some_and(|native| native.owner_valid())
+        );
         *self.current.write().unwrap() = Some(connection);
     }
 
@@ -56,14 +61,33 @@ impl Session {
             return Err(BridgeError::unavailable("Codex Mobile 已停止连接。").before_send());
         }
         let current = self.current.read().unwrap().clone();
-        if let Some(connection) = current
-            .as_ref()
-            .filter(|c| c.is_native() && c.is_alive() && c.owner_valid())
+        #[cfg(test)]
+        if self
+            .shared_fixture
+            .load(std::sync::atomic::Ordering::Acquire)
         {
+            if let Some(connection) = current.as_ref().filter(|connection| connection.is_alive()) {
+                return Ok(connection.clone());
+            }
+        }
+        let shared = if crate::runtime::SHARED_RUNTIME_VERIFIED {
+            crate::runtime::read_runtime(&self.paths.runtime_home)
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        if let Some(connection) = current.as_ref().filter(|c| {
+            c.is_alive()
+                && c.native_tools().is_some_and(|native| native.owner_valid())
+                && shared.as_ref().map_or(c.is_native(), |runtime| {
+                    c.runtime_id().as_deref() == Some(&runtime.instance_id)
+                })
+        }) {
             return Ok(connection.clone());
         }
-        let connection = match AppServerConnection::connect_native(&self.paths).await {
-            Ok(connection) => connection,
+        let (official, runtime) = match AppServerConnection::connect_native(&self.paths).await {
+            Ok(connection) => (Some(connection), shared),
             Err(native_error) => {
                 let runtime = crate::runtime::read_runtime(&self.paths.runtime_home)
                     .map_err(BridgeError::before_send)?
@@ -74,13 +98,18 @@ impl Session {
                         BridgeError::unavailable("请通过 Codex Mobile 桌面程序启用共享连接。")
                             .before_send()
                     })?;
-                if let Some(connection) = current.as_ref().filter(|c| {
-                    c.is_alive() && c.runtime_id().as_deref() == Some(&runtime.instance_id)
-                }) {
-                    return Ok(connection.clone());
-                }
-                if let Some(old) = self.current.write().unwrap().take() {
-                    old.close();
+                (None, Some(runtime))
+            }
+        };
+        let connection = match runtime {
+            None => official.unwrap(),
+            Some(runtime) => {
+                if official.is_none() {
+                    if let Some(connection) = current.as_ref().filter(|c| {
+                        c.is_alive() && c.runtime_id().as_deref() == Some(&runtime.instance_id)
+                    }) {
+                        return Ok(connection.clone());
+                    }
                 }
                 let connection =
                     AppServerConnection::connect_broker(&runtime.url, &runtime.auth_token).await?;
@@ -115,6 +144,12 @@ impl Session {
                     return Err(error.before_send());
                 }
                 connection.bind_runtime(self.paths.runtime_home.clone(), runtime);
+                if let Some(official) = official {
+                    if let Err(error) = connection.bind_official(official) {
+                        connection.close();
+                        return Err(error);
+                    }
+                }
                 connection
             }
         };
@@ -173,7 +208,8 @@ impl Session {
             .and_then(|connection| connection.initialized["userAgent"].as_str())
             .and_then(|agent| agent.split_once('/'))
             .and_then(|(_, rest)| rest.split_whitespace().next());
-        json!({"connected":connection.is_some(),"native":connection.is_some_and(|c| c.is_native()),"version":version})
+        json!({"connected":connection.is_some(),"native":connection.is_some_and(|c| c.native_tools().is_some()),
+            "controls":connection.is_some_and(|c| !c.is_native() && c.native_tools().is_some()),"version":version})
     }
     pub fn capabilities(&self) -> Value {
         let status = self.status();
@@ -183,46 +219,57 @@ impl Session {
             .load(std::sync::atomic::Ordering::Acquire)
         {
             let available = status["connected"] == true && !self.cancel.is_cancelled();
-            return json!({"native":false,"readLive":available,"send":available,"images":available,
+            return json!({"native":status["native"]==true,"create":status["native"]==true,"asyncReplies":status["native"]==true,
+                "readLive":available,"send":available,"images":available,
                 "queue":available,"queueStart":available,"queueReorder":available,"queueEdit":available,
                 "interrupt":available,"interactions":available,"resume":available,"settings":available});
         }
         let native = status["native"] == true;
-        let connected =
-            (native || crate::runtime::SHARED_RUNTIME_VERIFIED) && status["connected"] == true;
+        let connected = native && status["connected"] == true;
+        let controls =
+            connected && crate::runtime::SHARED_RUNTIME_VERIFIED && status["controls"] == true;
         let desktop_navigation = connected
             && self
                 .current
                 .read()
                 .unwrap()
                 .as_ref()
+                .and_then(|connection| connection.native_tools())
                 .is_some_and(|connection| {
-                    connection.is_native()
-                        && connection.is_alive()
+                    connection.is_alive()
                         && connection.owner_valid()
                         && crate::native::navigation_supported(&connection.initialized)
                 });
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
-        json!({"readLive":connected,"send":connected,"queue":connected && !native,"catalog":false,
+        json!({"readLive":connected,"send":connected,"queue":controls,"catalog":false,
             "native":native,"create":native,"images":connected,"imageReferences":native,
             "desktopNavigation":desktop_navigation,
             "contextReferences":connected,
             "modelSelection":native && self.model_efforts().is_some(),
-            "resume":false,"queueStart":false,"queueReorder":false,"queueEdit":false,
-            "interrupt":false,"interactions":false,"settings":false,"goals":false})
+            "resume":connected && native,"resumeInterrupted":connected && native,"asyncReplies":connected && native,
+            "queueStart":controls,"queueReorder":controls,"queueEdit":controls,
+            "interrupt":controls,"interactions":controls,"settings":false,"goals":false})
     }
     pub fn model_efforts(&self) -> Option<Vec<String>> {
         self.current
             .read()
             .unwrap()
             .as_ref()
+            .and_then(|connection| connection.native_tools())
             .filter(|connection| {
                 connection.is_native() && connection.is_alive() && connection.owner_valid()
             })
             .and_then(|connection| crate::native::model_efforts(&connection.initialized))
     }
     pub fn require(&self, capability: &str) -> Result<()> {
-        if self.capabilities()[capability] != true {
+        let capabilities = self.capabilities();
+        if capabilities[capability] != true {
+            if capability == "interactions" && capabilities["native"] == true {
+                return Err(
+                    BridgeError::new(409, "此审批的原始控制连接已失效，请等待重新同步。")
+                        .before_send(),
+                );
+            }
             return Err(BridgeError::unavailable(
                 "此操作尚未开放，请在官方 Codex 桌面处理；草稿会保留。",
             )

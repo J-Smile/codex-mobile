@@ -105,6 +105,200 @@ where
     .unwrap()
 }
 
+// INTERACT-008：原生答案接受与官方问题结束分别记录；重复、刷新、重启不重发。
+#[tokio::test]
+async fn native_async_answer_delivery_survives_restart_without_resolving_the_question() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    peer.reads.lock().await.get_mut(CHAT).unwrap()["turns"] = json!([{
+        "id":"question-turn","startedAt":100,"status":"completed","items":[{
+            "id":"question-item","type":"agentMessage","questions":[{"title":"选择合成答案","options":["甲","乙"]}]
+        }]
+    }]);
+    let read = peer.reads.lock().await[CHAT].clone();
+    let history_url = format!("http://{}/api/threads/{CHAT}/history", server.address);
+    let (_, snapshot) = result(client.get(&history_url).header("cookie", &cookie)).await;
+    assert_eq!(snapshot["capabilities"]["asyncReplies"], true);
+    assert_eq!(snapshot["capabilities"]["interactions"], false);
+    let question = snapshot["interactions"][0].clone();
+    assert_eq!(question["replySupported"], true);
+    let request = question["id"].as_str().unwrap();
+    let item = question["questions"][0]["id"].as_str().unwrap();
+    let path = format!(
+        "threads/{CHAT}/interactions/{}",
+        percent_encoding::utf8_percent_encode(request, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let body = json!({"answers":{item:["乙"]}});
+    assert_eq!(
+        client
+            .post(format!("http://{}/api/{path}", server.address))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let (status, receipt) = result(post(&server, &client, &cookie, &path).json(&body)).await;
+    assert_eq!(status, 200, "{receipt}");
+    assert_eq!(receipt["deliveryStatus"], "accepted");
+    assert_eq!(receipt["resolved"], false);
+    let (_, duplicate) = result(post(&server, &client, &cookie, &path).json(&body)).await;
+    assert_eq!(duplicate["deliveryStatus"], "accepted");
+    assert_eq!(peer.count("send_message_to_thread").await, 1);
+    let calls = peer.calls.lock().await;
+    let send = calls
+        .iter()
+        .find(|call| call["params"]["tool"] == "send_message_to_thread")
+        .unwrap();
+    assert_eq!(send["params"]["threadId"], CHAT);
+    assert_eq!(send["params"]["arguments"]["threadId"], CHAT);
+    let prompt = send["params"]["arguments"]["prompt"].as_str().unwrap();
+    let answer: Value = serde_json::from_str(
+        prompt
+            .strip_prefix("<send_user_message_question_reply>\n")
+            .unwrap()
+            .strip_suffix("\n</send_user_message_question_reply>")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        answer,
+        json!([{"questionItemId":item,"question":"选择合成答案","answer":"乙"}])
+    );
+    drop(calls);
+    let (_, snapshot) = result(client.get(&history_url).header("cookie", &cookie)).await;
+    assert_eq!(snapshot["interactions"][0]["id"], request);
+    assert_eq!(snapshot["interactions"][0]["deliveryStatus"], "accepted");
+    assert_eq!(snapshot["interactions"][0]["replySupported"], false);
+    let (status, _) = result(
+        post(
+            &server,
+            &client,
+            &cookie,
+            &format!("threads/{CHAT}/interactions/approval-id"),
+        )
+        .json(&json!({"decision":"accept"})),
+    )
+    .await;
+    assert_eq!(status, 409);
+    assert_eq!(peer.count("send_message_to_thread").await, 1);
+    server.stop().await.unwrap();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    peer.reads.lock().await.insert(CHAT.into(), read);
+    let (_, snapshot) = result(
+        client
+            .get(format!(
+                "http://{}/api/threads/{CHAT}/history",
+                server.address
+            ))
+            .header("cookie", &cookie),
+    )
+    .await;
+    assert_eq!(snapshot["interactions"][0]["deliveryStatus"], "accepted");
+    let (_, receipt) = result(post(&server, &client, &cookie, &path).json(&body)).await;
+    assert_eq!(receipt["deliveryStatus"], "accepted");
+    assert_eq!(receipt["resolved"], false);
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_async_answer_unknown_receipt_is_not_replayed_and_partial_answers_are_rejected() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    peer.reads.lock().await.get_mut(CHAT).unwrap()["turns"] = json!([{
+        "id":"question-turn","startedAt":100,"status":"completed","items":[{
+            "id":"question-item","type":"agentMessage","questions":[{"title":"合成问题","options":[]}]
+        }]
+    }]);
+    let url = format!("http://{}/api/threads/{CHAT}/history", server.address);
+    let (_, snapshot) = result(client.get(&url).header("cookie", &cookie)).await;
+    let request = snapshot["interactions"][0]["id"].as_str().unwrap();
+    let item = snapshot["interactions"][0]["questions"][0]["id"]
+        .as_str()
+        .unwrap();
+    let path = format!(
+        "threads/{CHAT}/interactions/{}",
+        percent_encoding::utf8_percent_encode(request, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let invalid = json!({"answers":{},"skipped":[item]});
+    let (status, failure) = result(post(&server, &client, &cookie, &path).json(&invalid)).await;
+    assert_eq!(status, 400);
+    assert_eq!(failure["outcome"], "not-dispatched");
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    // 明确未投递后允许修正答案；收到未知回执后仍禁止再次投递。
+    *peer.send_reply.lock().await = Some(
+        json!({"success":true,"contentItems":[{"type":"inputText","text":"unrecognized receipt"}]}),
+    );
+    let body = json!({"answers":{item:["合成答案"]}});
+    for _ in 0..2 {
+        let (status, error) = result(post(&server, &client, &cookie, &path).json(&body)).await;
+        assert_ne!(status, 200);
+        assert_eq!(error["outcome"], "unknown");
+    }
+    assert_eq!(peer.count("send_message_to_thread").await, 1);
+    let (_, snapshot) = result(client.get(&url).header("cookie", &cookie)).await;
+    assert_eq!(snapshot["interactions"][0]["deliveryStatus"], "unknown");
+    assert_eq!(snapshot["interactions"][0]["replySupported"], false);
+    server.stop().await.unwrap();
+}
+
+// CONTROL-012：继续绑定最后失败/中断轮，活跃聊天和旧轮不能触发新消息。
+#[tokio::test]
+async fn native_continue_validates_latest_turn_and_does_not_repeat_after_restart() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    let path = format!("threads/{CHAT}/resume");
+    for (name, status, thread_status, requested, expected) in [
+        ("completed", "completed", json!("idle"), "completed", 409),
+        ("running", "inProgress", json!("active"), "running", 409),
+        (
+            "new-active",
+            "failed",
+            json!({"type":"active"}),
+            "new-active",
+            409,
+        ),
+        ("latest", "failed", json!("idle"), "older", 409),
+        ("failed", "failed", json!("idle"), "failed", 200),
+        ("stopped", "interrupted", json!("idle"), "stopped", 200),
+    ] {
+        {
+            let mut reads = peer.reads.lock().await;
+            let read = reads.get_mut(CHAT).unwrap();
+            read["thread"]["status"] = thread_status;
+            read["turns"] = json!([{"id":name,"startedAt":100,"status":status,"items":[]}]);
+        }
+        let (status, receipt) =
+            result(post(&server, &client, &cookie, &path).json(&json!({"turnId":requested}))).await;
+        assert_eq!(status, expected, "{name}: {receipt}");
+        if expected == 409 {
+            assert_eq!(receipt["outcome"], "not-dispatched");
+        }
+    }
+    let (_, duplicate) =
+        result(post(&server, &client, &cookie, &path).json(&json!({"turnId":"stopped"}))).await;
+    assert_eq!(duplicate["status"], "accepted");
+    assert_eq!(peer.count("send_message_to_thread").await, 2);
+    let calls = peer.calls.lock().await;
+    let prompts = calls
+        .iter()
+        .filter(|call| call["params"]["tool"] == "send_message_to_thread")
+        .map(|call| call["params"]["arguments"]["prompt"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(prompts[0].contains("failed"));
+    assert!(prompts[1].contains("stopped"));
+    drop(calls);
+    server.stop().await.unwrap();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    let (status, receipt) =
+        result(post(&server, &client, &cookie, &path).json(&json!({"turnId":"stopped"}))).await;
+    assert_eq!(status, 200, "{receipt}");
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    server.stop().await.unwrap();
+}
+
 // OPS-003：真实提交入口的前置失败必须保持未投递，不创建未知操作。
 // MANAGED-001/002 迁移：创建统一交给 App Tools，首轮确认与创建身份仍分开，重启不重建。
 #[tokio::test]

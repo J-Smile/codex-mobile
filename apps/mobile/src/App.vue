@@ -509,7 +509,7 @@ const sendDisabledReason = computed(() => !hasMessage.value && resumableTurn.val
 const composerAction = computed(() => active.value && !hasMessage.value
   ? { kind: 'stop', busy: stopping.value, disabled: !capabilities.value.interrupt || stopping.value || streamStatus.value !== 'connected', label: capabilities.value.interrupt ? '停止任务' : '请在桌面停止' }
   : { kind: 'send', busy: sending.value, disabled: !!sendDisabledReason.value,
-    label: sending.value ? '发送中' : !hasMessage.value && resumableTurn.value ? '继续任务' : newChat.value ? '创建对话并发送' : capabilities.value.native && active.value ? '发送追加消息' : active.value || queueState.value?.messages.length ? '加入队列' : '发送消息' });
+    label: sending.value ? '发送中' : !hasMessage.value && resumableTurn.value ? '继续任务' : newChat.value ? '创建对话并发送' : capabilities.value.native && !capabilities.value.queue && active.value ? '发送追加消息' : capabilities.value.queue && (active.value || queueState.value?.messages.length) ? '加入队列' : '发送消息' });
 const delegationTargets = computed(() => subagentTargets(turns.value.flatMap((turn) => turn.items)));
 const visiblePending = computed(() => pendingMessages.value.filter((message) => message.threadId === selectedId.value));
 function workspaceLabel(cwd?: string) {
@@ -1096,7 +1096,7 @@ async function send() {
     return;
   }
   if (newChat.value) { await createChat(); return; }
-  const mode: MessageMode = !capabilities.value.native && (active.value || queueState.value?.messages.length) ? 'queue' : 'now';
+  const mode: MessageMode = capabilities.value.queue && (active.value || queueState.value?.messages.length) ? 'queue' : 'now';
   const prompt = draft.value;
   const threadId = selectedId.value;
   const images = attachments.readyImages();
@@ -1291,7 +1291,7 @@ async function resumeTurn(turnId: string) {
   error.value = '';
   try {
     await request(threadUrl(thread, 'resume'), { method: 'POST', body: JSON.stringify({ turnId }) });
-    if (selectedId.value === thread) notice.value = '已开启新一轮，继续上一任务。';
+    if (selectedId.value === thread) notice.value = '继续请求已发送，等待任务状态同步。';
   } catch (failure) { if (selectedId.value === thread) error.value = (failure as Error).message; }
   finally { resuming.value = false; }
 }
@@ -1673,7 +1673,7 @@ onUnmounted(() => {
         <p v-if="currentCreation" class="muted small" role="status">聊天已创建，草稿已保留。 <button type="button" class="text-button" @click="restoreCreation(currentCreation)">查看原聊天</button></p>
         <p v-if="modelSelection.model || modelSelection.thinking" class="muted small" role="status">已选择下次发送的模型选项；发送后由桌面确认。</p>
         <MessageQueue v-if="selectedId && capabilities.queue" :key="selectedId" :queue="queueState" :loading="queueLoading" :busy="queueBusy" :error="queueError" :actions="messageQueue" :capabilities="capabilities" :active="active" :compact="interactionState.expanded" :disabled="!capabilities.queue || sending || streamStatus !== 'connected'" @reload="messageQueue.reload" @expand="pendingPanel?.minimize()" />
-        <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :desktop-supported="!!capabilities.desktopNavigation" :disabled="!capabilities.interactions || streamStatus !== 'connected'" :unavailable-reason="!capabilities.interactions ? '当前连接不支持在手机回复此请求，请在电脑上的 Codex 处理。' : '连接恢复后可回复，已填写的答案会保留。'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
+        <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :desktop-supported="!!capabilities.desktopNavigation" :disabled="!(capabilities.interactions || capabilities.asyncReplies) || streamStatus !== 'connected'" :unavailable-reason="!(capabilities.interactions || capabilities.asyncReplies) ? '当前连接不支持在手机回复此请求，请在电脑上的 Codex 处理。' : '连接恢复后可回复，已填写的答案会保留。'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
         <Transition name="composer-notice">
           <div v-if="(visibleNotice || subagentInputRejected) && !interactionState.expanded" class="composer-notice" role="status">
             <template v-if="subagentInputRejected">
@@ -1684,7 +1684,7 @@ onUnmounted(() => {
           </div>
         </Transition>
         </div>
-        <div class="composer-dock" :inert="interactionState.expanded && !!capabilities.interactions" :aria-hidden="interactionState.expanded && !!capabilities.interactions || undefined"><div class="composer-dock-content">
+        <div class="composer-dock" :inert="interactionState.expanded && !!(capabilities.interactions || capabilities.asyncReplies)" :aria-hidden="interactionState.expanded && !!(capabilities.interactions || capabilities.asyncReplies) || undefined"><div class="composer-dock-content">
         <form class="composer" :class="{ expanded: composerExpanded, 'has-message': hasMessage, 'task-active': active }" @submit.prevent="send()" @click.self="voice.clear(); composer?.focus()">
           <input ref="imagePicker" class="hidden-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple aria-label="选择发送的图片" @change="addImages" />
           <div class="composer-content" @input="($event as InputEvent).isComposing && resizeComposer()">

@@ -10,11 +10,14 @@ use std::{
     time::SystemTime,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+#[path = "windows_start.rs"]
+mod windows_start;
 
 pub const CONTRACT: &str = "local-desktop-0.171.0-alpha.13-stdio-v2";
-// 握手不能证明权限、MCP 和订阅释放语义。此版本未通过平台验收，不发布共享实例。
-// 这是发布门禁，不提供配置或环境变量绕过。
-pub const SHARED_RUNTIME_VERIFIED: bool = false;
+// Windows 已验收同实例官方工具、stdio、包身份和沙箱；其他平台仍只透传。
+// 没有配置或环境变量绕过平台验收。
+pub const SHARED_RUNTIME_VERIFIED: bool = cfg!(windows);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeInfo {
@@ -201,9 +204,14 @@ pub fn local_initialize(message: &Value) -> bool {
         && message["params"]["capabilities"]["explicitGatewayOauth"] == true
 }
 pub fn supported_initialize(message: &Value) -> bool {
-    message["userAgent"]
-        .as_str()
-        .is_some_and(|agent| agent.starts_with("Codex Desktop/0.171.0-alpha.13 "))
+    message["userAgent"].as_str().is_some_and(|agent| {
+        [
+            "Codex Desktop/0.171.0-alpha.13 ",
+            "Codex Desktop/0.171.0-alpha.13.2 ",
+        ]
+        .iter()
+        .any(|version| agent.starts_with(version))
+    })
 }
 
 pub fn proxy_main(args: Vec<String>) -> Result<i32> {
@@ -235,6 +243,12 @@ pub async fn proxy(args: Vec<String>) -> Result<i32> {
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     let owner = desktop_owner();
+    #[cfg(windows)]
+    let owner = owner.filter(|desktop| {
+        windows_start::package(desktop.pid).is_some_and(|package| {
+            windows_start::package(std::process::id()).as_ref() == Some(&package)
+        })
+    });
     if !SHARED_RUNTIME_VERIFIED || !main_app_server(&args) || owner.is_none() {
         return Ok(command
             .args(args)
@@ -281,6 +295,13 @@ pub async fn proxy(args: Vec<String>) -> Result<i32> {
         child.kill().await?;
         return Err(BridgeError::unavailable("无法核对本轮 App Server。"));
     };
+    #[cfg(windows)]
+    if windows_start::package(server.pid) != windows_start::package(owner.as_ref().unwrap().pid) {
+        child.kill().await?;
+        return Err(BridgeError::unavailable(
+            "官方核心未继承桌面的 Windows 包身份，初始化尚未发送。",
+        ));
+    }
     let mut record = RuntimeInfo {
         format: 2,
         instance_id: uuid::Uuid::new_v4().to_string(),
@@ -586,6 +607,32 @@ pub async fn prepare_desktop(paths: &Paths, binaries: &Path) -> Result<Value> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000 | 0x00000200);
     }
+    #[cfg(windows)]
+    if SHARED_RUNTIME_VERIFIED {
+        let alias = dirs::data_local_dir()
+            .map(|directory| directory.join("Microsoft/WindowsApps/chatgpt-desktop.exe"))
+            .filter(|path| path.exists())
+            .ok_or_else(|| {
+                BridgeError::unavailable("未找到官方 Windows 启动别名，请修复官方桌面安装。")
+            })?;
+        let installed = hidden_powershell(
+            "Get-AppxPackage -Name OpenAI.Codex | Select-Object -ExpandProperty InstallLocation",
+        )?;
+        let matches = String::from_utf8_lossy(&installed).lines().any(|location| {
+            let location = Path::new(location.trim());
+            desktop
+                .desktop_path
+                .strip_prefix(location)
+                .is_ok_and(|path| path == Path::new("app/ChatGPT.exe"))
+        });
+        if !matches {
+            return Err(BridgeError::unavailable("启动别名与当前官方安装包不匹配。"));
+        }
+        windows_start::launch(&command, &alias)?;
+    } else {
+        command.spawn()?;
+    }
+    #[cfg(not(windows))]
     command.spawn()?;
     Ok(
         json!({"status":if SHARED_RUNTIME_VERIFIED { "starting" } else { "history-only" },"desktop":desktop}),
