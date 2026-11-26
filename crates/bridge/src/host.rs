@@ -25,6 +25,7 @@ pub struct Host {
     pub candidate: Mutex<Option<Candidate>>,
     mobile_update: watch::Sender<bool>,
 }
+
 impl Host {
     pub fn open(paths: Paths, packaged: bool) -> Result<Arc<Self>> {
         let config = ServiceConfig::load(&paths.data_home)?;
@@ -107,11 +108,21 @@ impl Host {
     }
     pub async fn status(&self) -> Result<Value> {
         let app = self.app().await;
-        let connecting = self.desktop_connection.lock().await.clone();
-        let sync = match (&app, connecting) {
-            (_, Some(status)) => status,
-            (Some(app), _) => app.desktop.sync_status().await,
-            (None, _) => json!({"state":"stopped","message":"启动连接服务后，将连接官方 Codex。"}),
+        let observed = match &app {
+            Some(app) => app.desktop.sync_status().await,
+            None => json!({"state":"stopped","message":"启动连接服务后，将连接官方 Codex。"}),
+        };
+        let sync = {
+            let mut connecting = self.desktop_connection.lock().await;
+            // 后台探测恢复后，启动错误不再覆盖真实状态；后续断线也不复活旧错误。
+            if observed["state"] == "connected"
+                && connecting
+                    .as_ref()
+                    .is_some_and(|status| status["state"] == "error")
+            {
+                *connecting = None;
+            }
+            connecting.clone().unwrap_or(observed)
         };
         let runtime = json!({"ready":app.as_ref().is_some_and(|app| app.session.capabilities()["readLive"] == true),"message":sync["message"]});
         let error = self.service_error.read().await.clone();
@@ -326,5 +337,49 @@ impl Host {
         let state = self.status().await?;
         Ok(format!("Codex Mobile {}\n连接服务：{}\n监听地址：{}:{}\n实时同步：{}\n同步详情：{}\n共享运行时：{}\n服务详情：{}",
             env!("CARGO_PKG_VERSION"),if state["service"]["running"]==true{"运行中"}else{"已停止"},state["config"]["bind"].as_str().unwrap_or(""),state["config"]["port"],state["sync"]["state"].as_str().unwrap_or(""),state["sync"]["message"].as_str().unwrap_or(""),state["runtime"]["message"].as_str().unwrap_or(""),state["service"]["error"].as_str().unwrap_or("无")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{native_test_support::NativePipe, test_support::Fixture};
+
+    #[tokio::test]
+    async fn recovered_connection_clears_startup_error_without_hiding_later_disconnect() {
+        let fixture = Fixture::new();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        ServiceConfig {
+            port,
+            bind: "127.0.0.1".into(),
+            ..Default::default()
+        }
+        .save(&fixture.paths.data_home)
+        .unwrap();
+        let host = Host::open(fixture.paths.clone(), false).unwrap();
+        host.start().await.unwrap();
+        *host.desktop_connection.lock().await =
+            Some(json!({"state":"error","message":"旧连接启动失败"}));
+        assert_eq!(host.status().await.unwrap()["sync"]["state"], "error");
+        let (peer, connection) = NativePipe::start(&fixture.paths).await;
+        host.app()
+            .await
+            .unwrap()
+            .session
+            .install_native(connection.clone());
+        let calls = peer.calls.lock().await.len();
+        let recovered = host.status().await.unwrap();
+        assert_eq!(recovered["runtime"]["ready"], true);
+        assert_eq!(recovered["sync"]["state"], "connected");
+        assert!(host.desktop_connection.lock().await.is_none());
+        assert_eq!(peer.calls.lock().await.len(), calls);
+        connection.close();
+        let disconnected = host.status().await.unwrap();
+        assert_eq!(disconnected["runtime"]["ready"], false);
+        assert_ne!(disconnected["sync"]["state"], "connected");
+        assert_ne!(disconnected["sync"]["message"], "旧连接启动失败");
+        host.stop().await.unwrap();
     }
 }

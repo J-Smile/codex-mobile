@@ -57,17 +57,7 @@ pub fn process_alive(pid: u32) -> bool {
 }
 
 pub fn read_runtime(directory: &Path) -> Result<Option<RuntimeInfo>> {
-    // 旧记录不参与接入，也不以新格式改写旧运行时的身份。
-    if let Some(legacy) = read_json_optional(&directory.join("runtime.json"))? {
-        if legacy["pid"]
-            .as_u64()
-            .is_some_and(|pid| pid <= u32::MAX as u64 && process_alive(pid as u32))
-        {
-            return Err(BridgeError::unavailable(
-                "旧共享运行时仍在运行，请完成旧任务并退出旧版连接后再打开 Codex。",
-            ));
-        }
-    }
+    // 只发现当前契约的实例；旧 runtime.json 不参与接入，也不阻挡新实例。
     let instances = directory.join("instances");
     if !instances.exists() {
         return Ok(None);

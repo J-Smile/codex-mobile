@@ -12,9 +12,22 @@ fn legacy_live_runtime_is_rejected_without_rewriting_or_stopping_it() {
         json!({"pid":std::process::id(),"url":"ws://127.0.0.1:8000","cliPath":"old"}).to_string();
     let path = f.paths.runtime_home.join("runtime.json");
     std::fs::write(&path, &bytes).unwrap();
-    assert!(read_runtime(&f.paths.runtime_home).is_err());
-    assert_eq!(std::fs::read_to_string(path).unwrap(), bytes);
+    assert!(read_runtime(&f.paths.runtime_home).unwrap().is_none());
+    let current = f.runtime("ws://127.0.0.1:8001");
+    assert_eq!(
+        read_runtime(&f.paths.runtime_home).unwrap(),
+        Some(current.clone())
+    );
+    current.validate(&f.paths.runtime_home).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
     assert!(runtime::process_alive(std::process::id()));
+    // 旧格式文件不参与发现；即使损坏，也不能遮蔽已验证的新实例。
+    std::fs::write(&path, "old incomplete record").unwrap();
+    assert_eq!(read_runtime(&f.paths.runtime_home).unwrap(), Some(current));
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "old incomplete record"
+    );
 }
 #[test]
 fn old_transport_or_missing_broker_credentials_are_rejected_without_migration() {

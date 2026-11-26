@@ -23,6 +23,11 @@ async fn official_native_host_connect_and_stop() {
         web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         data_home: data.clone(),
     };
+    std::fs::create_dir_all(&paths.runtime_home).unwrap();
+    let legacy_path = paths.runtime_home.join("runtime.json");
+    let legacy =
+        json!({"pid":std::process::id(),"url":"ws://127.0.0.1:1","cliPath":"old"}).to_string();
+    std::fs::write(&legacy_path, &legacy).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
@@ -48,6 +53,7 @@ async fn official_native_host_connect_and_stop() {
     .unwrap();
     assert_eq!(status["sync"]["state"], "connected", "{status}");
     assert_eq!(status["runtime"]["ready"], true);
+    assert_eq!(std::fs::read_to_string(legacy_path).unwrap(), legacy);
     assert_eq!(
         host.app().await.unwrap().session.capabilities()["native"],
         true
