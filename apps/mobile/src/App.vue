@@ -28,6 +28,7 @@ import type { PendingInteraction } from './features/conversation/interactions';
 import { subagentTargets, type DelegationRequest } from './features/composer/subagentDelegation';
 import { useMessageQueue, type MessageMode, type QueueSnapshot } from './features/composer/useMessageQueue';
 import { useVoiceInput } from './features/composer/useVoiceInput';
+import { useSubmission, type PendingOperation } from './features/composer/useSubmission';
 import { useImageAttachments, type UploadedImage } from './features/composer/useImageAttachments';
 import { useConversationHistory, type ConversationFrame } from './features/conversation/useConversationHistory';
 import { useNotifications } from './features/settings/useNotifications';
@@ -49,32 +50,13 @@ const emit = defineEmits<{ chooseDesktop: [] }>();
 
 const authenticated = ref(false);
 const capabilities = ref<Record<string, boolean>>({});
-type PendingOperation = { id: string; kind: string; target: string; phase: string; localOnly?: boolean };
-const unresolvedOperations = ref<PendingOperation[]>([]);
-const operationsReady = ref(false);
-const operationsError = ref('');
-async function loadOperations() {
-  try {
-    const result = await request<{ operations: PendingOperation[] }>('/api/operations');
-    const known = new Set(result.operations.map(operation => operation.id));
-    unresolvedOperations.value = [...result.operations, ...[...retryMessages].filter(([, pending]) => !known.has(pending.requestId)).map(([target, pending]) => ({ id: pending.requestId, target, kind: 'message', phase: 'unknown', localOnly: true }))];
-    operationsReady.value = true;
-    operationsError.value = '';
-  } catch {
-    operationsReady.value = false;
-    operationsError.value = '操作状态暂时无法核对；阅读和草稿仍可使用。';
-  }
-}
-async function closeOperation(operation: PendingOperation) {
-  if (operation.phase !== 'unknown') return;
-  if (!window.confirm('请先在桌面核对操作结果。结束等待不会撤销此前操作；之后再次发送属于新的操作，可能重复。')) return;
-  try {
-    if (!operation.localOnly) await request('/api/operations/' + encodeURIComponent(operation.id), { method: 'POST', body: JSON.stringify({ confirm: 'close-unknown' }) });
-    if (retryMessages.get(operation.target)?.requestId === operation.id) retryMessages.delete(operation.target);
-    persistRetryMessages();
-    await loadOperations();
-  } catch (failure) { operationsError.value = (failure as Error).message; }
-}
+const submissions = useSubmission();
+const unresolvedOperations = submissions.unresolvedOperations;
+const recoveredCreations = submissions.recoveredCreations;
+const operationsReady = submissions.operationsReady;
+const operationsError = submissions.operationsError;
+const loadOperations = submissions.loadOperations;
+const closeOperation = submissions.closeOperation;
 const booting = ref(true);
 const loginKey = ref('');
 const loggingIn = ref(false);
@@ -147,7 +129,7 @@ const historyError = ref('');
 let historyRequest: AbortController | undefined;
 let historyGap: { olderId: string; newerId: string; cursor: string } | undefined;
 let restoringFrame: ConversationFrame | undefined;
-const pendingSends = reactive(new Set<string>());
+const pendingSends = submissions.pendingSends;
 const stopping = ref(false);
 const composerMenu = ref(false);
 const reduceMotion = useReducedMotion();
@@ -194,23 +176,13 @@ const stickToBottom = ref(true);
 const newOutput = ref(false);
 const latestInHeader = ref(false);
 const theme = useBrowserTheme(() => authenticated.value && view.value === 'projects' ? 'navigation' : 'chat');
-const retryMessages = reactive(new Map<string, { requestId: string }>(readRetryMessages()));
-function readRetryMessages(): [string, { requestId: string }][] {
-  try {
-    const entries = JSON.parse(localStorage.getItem(desktopStorageKey('codex-mobile-pending-v2')) || '[]');
-    if (!Array.isArray(entries)) return [];
-    return entries.filter(entry => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1]?.requestId === 'string')
-      .map(([target, pending]) => [target, { requestId: pending.requestId }]);
-  } catch { return []; }
-}
-function persistRetryMessages() {
-  localStorage.setItem(desktopStorageKey('codex-mobile-pending-v2'), JSON.stringify([...retryMessages]));
-}
 const notifications = useNotifications(() => authenticated.value, openNotifiedThread);
 const activeProject = computed(() => projects.value.find((project) => project.projectId === selectedProjectId.value));
 const projectTitle = computed(() => activeProject.value?.label || (selectedProjectId.value === 'other' ? '其他对话' : '项目'));
 const draftKey = computed(() => newChat.value ? 'new:' + selectedProjectId.value : selectedId.value);
 const sending = computed(() => pendingSends.has(draftKey.value));
+const currentOperation = computed(() => unresolvedOperations.value.find(operation => operation.target === draftKey.value));
+const currentCreation = computed(() => recoveredCreations.value.find(operation => operation.target === draftKey.value));
 const attachments = useImageAttachments({ draftKey: () => draftKey.value });
 const { images: draftImages, uploading: imagesUploading, hasErrors: imageErrors } = attachments;
 const conversationHistory = useConversationHistory({
@@ -251,8 +223,8 @@ const voice = useVoiceInput({
 function canReloadApp() {
   return !props.devicePickerOpen && !booting.value && !pendingSends.size && !stopping.value && !voice.busy.value && !settingsOpen.value && !updateSettingsOpen.value && !goalOpen.value && !modeBusy.value
     && !pendingMessages.value.length && !scanOpen.value && !projectPickerOpen.value
-    && !notifications.busy.value && !delegationOpen.value && !contextOpen.value && !queueBusy.value && !interactions.value.length
-    && !attachments.hasPendingUploads.value && !imageErrors.value
+    && !notifications.busy.value && !delegationOpen.value && !contextOpen.value && !queueBusy.value && !interactions.value.some(entry => entry.replySupported)
+    && attachments.canReload.value
     && !document.querySelector('dialog[open]');
 }
 function openConversationLink(event: MouseEvent) {
@@ -266,6 +238,7 @@ function openConversationLink(event: MouseEvent) {
 function preserveBeforeReload() {
   if (!saveDrafts() && Object.values(drafts).some(Boolean)) return false;
   if (!saveModelDrafts() && Object.keys(modelDrafts).length) return false;
+  if (!attachments.saveDrafts()) return false;
   updateAddress(navigationOpen.value ? '' : selectedId.value);
   return true;
 }
@@ -277,7 +250,7 @@ const desktopUpgrade = useDesktopUpgrade(result => {
   if (result.updated) void appUpdate.check();
 });
 const visibleNotice = computed(() => notice.value || (desktopUpgrade.reconnecting.value
-  ? '正在等待升级后的连接…' : desktopUpgrade.upgrading.value ? '电脑正在后台升级…' : ''));
+  ? '正在等待升级后的连接…' : desktopUpgrade.upgrading.value ? desktopUpgrade.progress.value?.message || '电脑正在后台升级…' : ''));
 const visibleConnectionError = computed(() => !selectedId.value || streamStatus.value === 'connected' || desktopUpgrade.reconnecting.value ? '' : connectionError.value);
 const projectError = computed(() => catalogError.value || visibleConnectionError.value);
 const directSubagentInputError = 'direct app-server input is not allowed for multi-agent v2 sub-agents';
@@ -357,11 +330,13 @@ function onPageVisibility() {
 }
 
 function retryDesktopConnection() {
+  if (!document.hidden && authenticated.value && (!operationsReady.value || unresolvedOperations.value.length)) void loadOperations();
   if (!document.hidden && props.desktopName && !authenticated.value && !booting.value && loginError.value
     && loginFailureStatus.value !== 401) void initializeConnection();
 }
 
 function expireConnection() {
+  submissions.invalidate();
   authenticated.value = false;
   conversationHistory.clear();
   clearConversation();
@@ -509,10 +484,21 @@ const resumableTurn = computed(() => {
   const turn = turns.value.at(-1);
   return turn && (turn.status === 'failed' || (turn.status === 'interrupted' && turn.error)) ? turn : undefined;
 });
+function submissionReason(hasContent = hasMessage.value || !!resumableTurn.value) {
+  return submissions.readiness({
+    target: draftKey.value, capable: !!(newChat.value ? capabilities.value.create : capabilities.value.send),
+    connected: newChat.value ? authenticated.value : streamStatus.value === 'connected',
+    hasContent, uploading: imagesUploading.value, imageErrors: imageErrors.value,
+    imageCount: draftImages.value.length, imageSupported: !!capabilities.value.images, voiceBusy: voice.busy.value,
+    firstTurnPending: !newChat.value && firstTurnPending.value,
+    missingSource: newChat.value && (!creationSource.value || !selectedProjectId.value),
+  });
+}
+const sendDisabledReason = computed(() => !hasMessage.value && resumableTurn.value && !capabilities.value.resume
+  ? '请在电脑上的 Codex 继续任务。' : submissionReason());
 const composerAction = computed(() => active.value && !hasMessage.value
   ? { kind: 'stop', busy: stopping.value, disabled: !capabilities.value.interrupt || stopping.value || streamStatus.value !== 'connected', label: capabilities.value.interrupt ? '停止任务' : '请在桌面停止' }
-  : { kind: 'send', busy: sending.value,
-    disabled: !operationsReady.value || retryMessages.has(draftKey.value) || !(newChat.value ? capabilities.value.create : capabilities.value.send) || unresolvedOperations.value.some(operation => operation.target === draftKey.value) || (!hasMessage.value && !resumableTurn.value) || sending.value || imagesUploading.value || imageErrors.value || (!capabilities.value.images && !!draftImages.value.length) || (!newChat.value && streamStatus.value !== 'connected') || voice.busy.value,
+  : { kind: 'send', busy: sending.value, disabled: !!sendDisabledReason.value,
     label: sending.value ? '发送中' : !hasMessage.value && resumableTurn.value ? '继续任务' : newChat.value ? '创建对话并发送' : capabilities.value.native && active.value ? '发送追加消息' : active.value || queueState.value?.messages.length ? '加入队列' : '发送消息' });
 const delegationTargets = computed(() => subagentTargets(turns.value.flatMap((turn) => turn.items)));
 const visiblePending = computed(() => pendingMessages.value.filter((message) => message.threadId === selectedId.value));
@@ -527,6 +513,7 @@ async function disconnectBrowser() {
   voice.clear();
   try {
     await request('/api/logout', { method: 'POST', body: '{}' });
+    submissions.invalidate();
     conversationHistory.clear();
     attachments.clearAll();
     clearConversation();
@@ -567,6 +554,7 @@ function clearConversation() {
   delegationOpen.value = false;
   contextOpen.value = false;
   interactions.value = [];
+  interactionState.value = { expanded: false, pending: false };
   notice.value = '';
 }
 
@@ -926,8 +914,13 @@ function applySnapshot(snapshot: StreamSnapshot) {
   if (snapshot.changedFileCount !== undefined) changedFileCount.value = snapshot.changedFileCount;
   interactions.value = snapshot.interactions || [];
   capabilities.value = snapshot.capabilities || {};
-  firstTurnPending.value = !!snapshot.firstTurnPending;
-  if (!firstTurnPending.value && createdDraft.value?.threadId === snapshot.thread.id && snapshot.syncMode === 'desktop-poll') {
+  if (snapshot.firstTurnPending !== undefined) firstTurnPending.value = snapshot.firstTurnPending;
+  if (snapshot.firstTurnPending === false && snapshot.syncMode === 'desktop-poll') {
+    for (const operation of submissions.recoveredCreations.value.filter(value => value.receipt?.threadId === snapshot.thread.id)) {
+      submissions.acknowledgeCreation(operation);
+    }
+  }
+  if (snapshot.firstTurnPending === false && createdDraft.value?.threadId === snapshot.thread.id && snapshot.syncMode === 'desktop-poll') {
     const sent = createdDraft.value;
     if (drafts[sent.key] === sent.prompt) drafts[sent.key] = '';
     attachments.clear(sent.key, sent.images);
@@ -955,6 +948,7 @@ function applyUpdate(update: StreamUpdate) {
 
 watch(selectedId, (threadId) => {
   cancelHistory();
+  firstTurnPending.value = submissions.recoveredCreations.value.some(operation => operation.receipt?.threadId === threadId && !operation.receipt.firstTurnAccepted);
   voice.clear();
   interactions.value = [];
   delegationOpen.value = false;
@@ -1086,13 +1080,11 @@ function pasteImages(event: ClipboardEvent) {
 }
 
 async function send() {
-  if (!operationsReady.value || !(newChat.value ? capabilities.value.create : capabilities.value.send) || unresolvedOperations.value.some(operation => operation.target === draftKey.value)) return;
-  if (sending.value || imagesUploading.value || imageErrors.value || (!selectedId.value && !newChat.value) || (!newChat.value && streamStatus.value !== 'connected') || voice.busy.value) return;
+  if (sendDisabledReason.value) { if (hasMessage.value) error.value = sendDisabledReason.value; return; }
   if (!hasMessage.value) {
     if (resumableTurn.value) await resumeTurn(resumableTurn.value.id);
     return;
   }
-  if (!capabilities.value.images && draftImages.value.length) { error.value = '当前连接暂不支持图片发送，图片草稿已保留。'; return; }
   if (newChat.value) { await createChat(); return; }
   const mode: MessageMode = !capabilities.value.native && (active.value || queueState.value?.messages.length) ? 'queue' : 'now';
   const prompt = draft.value;
@@ -1111,50 +1103,43 @@ async function send() {
       await nextTick();
       resizeComposer();
     }
-  } catch (failure) { if (selectedId.value === threadId) error.value = (failure as Error).message; }
+  } catch (failure) { if ((failure as Error).name !== 'AbortError' && selectedId.value === threadId) error.value = (failure as Error).message; }
 }
 
 async function sendMessage(prompt: string, mode: MessageMode, images: UploadedImage[] = [], selection: MessageModel = {}) {
   const threadId = selectedId.value;
-  if (!capabilities.value.send || !operationsReady.value) throw new Error('当前无法发送，请在官方 Codex 处理；草稿会保留。');
-  const retryMessage = retryMessages.get(threadId);
-  if (retryMessage) throw new Error('此前操作结果尚未确认，请先在电脑核对并结束等待。');
-  const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map((value) => value.toString(16).padStart(2, '0')).join('');
-  retryMessages.set(threadId, { requestId });
-  persistRetryMessages();
-  pendingSends.add(threadId);
-  if (mode === 'now') {
-    if (!pendingMessages.value.some(message => message.requestId === requestId)) pendingMessages.value.push({
-      threadId, requestId, prompt, images: images.map(image => ({ ...image, url: new URL(image.url, location.origin).href })), accepted: false,
-    });
-    void scrollBottom(true);
-  }
+  const reason = submissionReason(!!prompt.trim() || !!images.length);
+  if (reason) throw new Error(reason);
+  let requestId = '';
   try {
-    const result = await request<{ queued?: boolean; queue?: QueueSnapshot }>(threadUrl(threadId, 'messages'), { method: 'POST', body: JSON.stringify({ prompt, images: images.map(image => image.id), requestId, mode, ...selection }), timeoutMs: 65_000 });
+    const { result } = await submissions.submit<{ queued?: boolean; queue?: QueueSnapshot }>({
+      target: threadId, kind: 'message', url: threadUrl(threadId, 'messages'),
+      input: { prompt, images: images.map(image => image.id), mode, ...selection },
+      started(id) {
+        requestId = id;
+        if (mode === 'now') {
+          pendingMessages.value.push({ threadId, requestId, prompt,
+            images: images.map(image => ({ ...image, url: new URL(image.url, location.origin).href })), accepted: false });
+          void scrollBottom(true);
+        }
+      },
+    });
     if (result.queue) messageQueue.acceptSnapshot(result.queue, threadId);
     if (result.queued) {
       pendingMessages.value = pendingMessages.value.filter(message => message.requestId !== requestId);
       if (selectedId.value === threadId) notice.value = '已加入待执行';
     }
-    const pending = pendingMessages.value.find((message) => message.requestId === requestId);
+    const pending = pendingMessages.value.find(message => message.requestId === requestId);
     if (pending) pending.accepted = true;
     if (capabilities.value.native) pendingMessages.value = pendingMessages.value.filter(message => message.requestId !== requestId);
-    retryMessages.delete(threadId);
-    persistRetryMessages();
     if (selectedId.value === threadId && mode === 'now') {
       reconcilePending();
       void scrollBottom(true);
     }
   } catch (failure) {
-    pendingMessages.value = pendingMessages.value.filter((message) => message.requestId !== requestId);
-    if (failure instanceof ApiError && failure.outcome === 'not-dispatched') {
-      retryMessages.delete(threadId);
-      persistRetryMessages();
-    }
-    await loadOperations();
+    pendingMessages.value = pendingMessages.value.filter(message => message.requestId !== requestId);
     throw failure;
   }
-  finally { pendingSends.delete(threadId); }
 }
 
 function openDelegation() {
@@ -1166,7 +1151,7 @@ function openDelegation() {
 }
 
 function openContext() {
-  if (!capabilities.value.catalog) return;
+  if (!capabilities.value.contextReferences && !capabilities.value.catalog) return;
   composerMenu.value = false;
   contextOpen.value = true;
 }
@@ -1192,7 +1177,7 @@ function onComposerInput(event: Event) {
   const input = event as InputEvent;
   const text = draftText.value;
   const caret = composer.value?.selectionStart() ?? text.length;
-  if (capabilities.value.catalog && input.data === '@' && !input.isComposing && /(?:^|\s)@$/.test(text.slice(0, caret))) {
+  if ((capabilities.value.contextReferences || capabilities.value.catalog) && input.data === '@' && !input.isComposing && /(?:^|\s)@$/.test(text.slice(0, caret))) {
     draftText.value = text.slice(0, caret - 1) + text.slice(caret);
     openContext();
   }
@@ -1203,8 +1188,8 @@ function closeDelegation() {
 }
 
 async function delegate(request: DelegationRequest) {
-  if (!capabilities.value.send || !operationsReady.value) return;
-  if (sending.value || imagesUploading.value || imageErrors.value || !selectedId.value || streamStatus.value !== 'connected') return;
+  const reason = submissionReason(!!request.prompt.trim());
+  if (reason) { delegationError.value = reason; return; }
   const threadId = selectedId.value;
   const source = delegationSource.value;
   const images = attachments.readyImages(threadId);
@@ -1221,7 +1206,7 @@ async function delegate(request: DelegationRequest) {
       resizeComposer();
     }
   } catch (failure) {
-    if (selectedId.value !== threadId) return;
+    if ((failure as Error).name === 'AbortError' || selectedId.value !== threadId) return;
     const message = (failure as Error).message;
     if (message.includes(directSubagentInputError)) {
       error.value = message;
@@ -1231,39 +1216,45 @@ async function delegate(request: DelegationRequest) {
 }
 
 async function openDesktop() {
-  if (!capabilities.value.catalog) { notice.value = '请直接在官方 Codex 打开此对话。'; return; }
+  if (!capabilities.value.desktopNavigation) { notice.value = '请直接在官方 Codex 打开此对话。'; return; }
   const threadId = selectedId.value;
+  notice.value = '';
+  error.value = '';
   try {
-    await request(threadUrl(threadId, 'open'), { method: 'POST', body: '{}' });
+    const result = await request<{ ok: boolean }>(threadUrl(threadId, 'open'), { method: 'POST', body: '{}' });
+    if (!result.ok) throw new Error('官方桌面尚未确认打开此对话，请在电脑核对。');
     if (selectedId.value === threadId) notice.value = '已在电脑上打开此对话';
   } catch (failure) { if (selectedId.value === threadId) error.value = (failure as Error).message; }
 }
 
 async function createChat() {
-  if (!creationSource.value || !capabilities.value.create || sending.value) return;
+  const reason = submissionReason();
+  if (reason) { if (capabilities.value.create) error.value = reason; return; }
   const target = draftKey.value;
-  if (retryMessages.has(target)) { error.value = '此前新建结果尚未确认，请先在桌面核对；不会重复创建。'; return; }
   const prompt = draft.value;
   const images = attachments.readyImages().map(image => image.id);
   const selection = modelSelection.value;
-  const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(value => value.toString(16).padStart(2, '0')).join('');
-  retryMessages.set(target, { requestId }); persistRetryMessages();
-  pendingSends.add(target); error.value = '';
+  error.value = '';
   try {
-    const result = await request<{ threadId: string; firstTurnAccepted: boolean }>('/api/threads', {
-      method:'POST', timeoutMs:65_000, body:JSON.stringify({sourceThreadId:creationSource.value,projectId:selectedProjectId.value,prompt,images,requestId,...selection}),
+    const { result, requestId } = await submissions.submit<{ threadId: string; firstTurnAccepted: boolean }>({
+      target, kind: 'create', url: '/api/threads',
+      input: { sourceThreadId: creationSource.value, projectId: selectedProjectId.value, prompt, images, ...selection },
     });
-    retryMessages.delete(target); persistRetryMessages();
-    // 创建接受不等于首轮已接受：保留草稿，切到正式 ID 后只恢复读取。
-    createdDraft.value = {threadId:result.threadId,key:target,prompt,images,selection};
-    openThread({id:result.threadId,title:'新对话'});
-    firstTurnPending.value = !result.firstTurnAccepted;
-    capabilities.value = {...capabilities.value,send:result.firstTurnAccepted};
-    notice.value = '聊天已创建，正在核对官方首轮状态；不会重复创建。';
-  } catch (failure) {
-    if (failure instanceof ApiError && failure.outcome === 'not-dispatched') { retryMessages.delete(target); persistRetryMessages(); }
-    await loadOperations(); error.value = (failure as Error).message;
-  } finally { pendingSends.delete(target); }
+    // 离开了原新建页就保留恢复入口，不让迟到回执抢走当前页面。
+    if (draftKey.value !== target || !newChat.value) return;
+    createdDraft.value = { threadId: result.threadId, key: target, prompt, images, selection };
+    const operation = recoveredCreations.value.find(value => value.id === requestId);
+    if (operation) restoreCreation(operation);
+  } catch (failure) { if ((failure as Error).name !== 'AbortError' && draftKey.value === target) error.value = (failure as Error).message; }
+}
+
+function restoreCreation(operation: PendingOperation) {
+  const result = operation.receipt;
+  if (!result?.threadId) return;
+  if (result.firstTurnAccepted) submissions.acknowledgeCreation(operation);
+  openThread({ id: result.threadId, title: '新对话' });
+  firstTurnPending.value = !result.firstTurnAccepted;
+  if (firstTurnPending.value) capabilities.value = { ...capabilities.value, send: false };
 }
 
 async function resumeTurn(_turnId: string) { error.value = '手机续接尚未开放，请在官方 Codex 继续任务。'; }
@@ -1469,9 +1460,12 @@ onUnmounted(() => {
           <button type="button" class="search-cancel" @click="toggleSearch">取消</button>
         </div>
       </header>
+      <section v-if="recoveredCreations.length" class="navigation-notice" aria-label="已创建的聊天">
+        <div v-for="operation in recoveredCreations" :key="operation.id"><span>聊天已创建，草稿已保留。</span> <button type="button" class="text-button" @click="restoreCreation(operation)">查看原聊天</button></div>
+      </section>
       <section v-if="unresolvedOperations.length" class="error-banner" aria-label="待确认的操作">
         <div v-for="operation in unresolvedOperations" :key="operation.id">
-          <p role="status">此前发送的结果待确认，请先在桌面核对。</p>
+          <p role="status">{{ operation.target.startsWith('new:') ? '新建聊天' : knownThreads.find(thread => thread.id === operation.target)?.title || '聊天' }}：此前操作的结果待确认，请先核对。</p>
           <button type="button" class="text-button" :disabled="operation.phase !== 'unknown'" @click="closeOperation(operation)">{{ operation.phase === 'unknown' ? '已核对，结束等待' : '正在确认结果…' }}</button>
         </div>
       </section>
@@ -1582,8 +1576,8 @@ onUnmounted(() => {
           <div v-show="chatMenu" class="composer-menu chat-menu" role="menu" aria-label="对话操作">
             <button type="button" role="menuitem" @click="openSettings($event, chatMenuTrigger)"><Setting />对话设置</button>
             <button v-if="selectedId" type="button" role="menuitem" @click="openUsage(true)"><Histogram />Token 用量<span class="menu-item-detail">此对话</span></button>
-            <HookReview v-if="selectedId && capabilities.readLive && !capabilities.native" :thread-id="selectedId" @open="chatMenu = false" @after-close="restoreComposerFocus" />
-            <button v-if="selectedId" type="button" role="menuitem" :disabled="!capabilities.catalog" @click="openDesktop(); chatMenu = false"><Connection />在电脑上打开</button>
+            <HookReview v-if="selectedId" :thread-id="selectedId" :desktop-supported="!!capabilities.desktopNavigation" @open="chatMenu = false" @after-close="restoreComposerFocus" />
+            <button v-if="selectedId" type="button" role="menuitem" :disabled="!capabilities.desktopNavigation" @click="openDesktop(); chatMenu = false"><Connection />在电脑上打开</button>
           </div>
         </Transition>
       </div>
@@ -1616,14 +1610,23 @@ onUnmounted(() => {
       </div>
       <div v-if="selectedId || newChat" ref="composerRegion" class="composer-region" :class="{ 'short-keyboard': shortKeyboardViewport, 'keyboard-open': keyboardOpen, 'question-mode': interactionState.expanded }">
         <Transition name="latest-output"><button v-if="newOutput && !latestInHeader" type="button" class="new-output-button" aria-label="回到最新消息" @mousedown.prevent @click="scrollBottom(true)"><ArrowDown /></button></Transition>
+        <div class="composer-support">
         <button v-if="goalSummary" v-show="!interactionState.expanded" type="button" class="goal-summary" :disabled="!capabilities.goals" :aria-label="'查看目标：' + goalSummary.objective" @click="openGoal"><Aim /><span><strong>{{ goalSummary.objective }}</strong><small>{{ goalStatusLabels[goalSummary.status] }} · {{ goalSummary.tokensUsed.toLocaleString('zh-CN') }} Token<template v-if="goalSummary.tokenBudget !== null"> / {{ goalSummary.tokenBudget.toLocaleString('zh-CN') }}</template></small></span><ArrowRight /></button>
         <p v-if="firstTurnPending" class="muted small" role="status">聊天已创建，等待官方首轮确认；不会重复创建。</p>
         <p v-else-if="selectedId && !capabilities.send" class="muted small" role="status">当前仅供阅读，草稿会保留。</p>
         <p v-else-if="draftImages.length && capabilities.imageReferences" class="muted small" role="status">图片上传到电脑后，通过文件引用交给 Codex 读取。</p>
         <p v-else-if="draftImages.length && !capabilities.images" class="muted small" role="status">当前连接暂不支持图片发送，图片草稿已保留。</p>
+        <div v-if="currentOperation || operationsError || ((hasMessage || resumableTurn) && sendDisabledReason)" class="composer-status muted small" role="status">
+          <span>{{ operationsError || sendDisabledReason || '本聊天有一笔操作等待确认，草稿已保留。' }}</span>
+          <div v-if="currentOperation || operationsError" class="composer-status-actions">
+          <button type="button" class="text-button" @click="loadOperations">重新核对</button>
+          <button v-if="currentOperation?.phase === 'unknown'" type="button" class="text-button" @click="closeOperation(currentOperation)">已核对，结束等待</button>
+          </div>
+        </div>
+        <p v-if="currentCreation" class="muted small" role="status">聊天已创建，草稿已保留。 <button type="button" class="text-button" @click="restoreCreation(currentCreation)">查看原聊天</button></p>
         <p v-if="modelSelection.model || modelSelection.thinking" class="muted small" role="status">已选择下次发送的模型选项；发送后由桌面确认。</p>
         <MessageQueue v-if="selectedId && capabilities.queue" :key="selectedId" :queue="queueState" :loading="queueLoading" :busy="queueBusy" :error="queueError" :actions="messageQueue" :compact="interactionState.expanded" :disabled="!capabilities.queue || sending || streamStatus !== 'connected'" @reload="messageQueue.reload" @expand="pendingPanel?.minimize()" />
-        <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :disabled="!capabilities.interactions || streamStatus !== 'connected'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
+        <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :desktop-supported="!!capabilities.desktopNavigation" :disabled="!capabilities.interactions || streamStatus !== 'connected'" :unavailable-reason="!capabilities.interactions ? '当前连接不支持在手机回复此请求，请在电脑上的 Codex 处理。' : '连接恢复后可回复，已填写的答案会保留。'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
         <Transition name="composer-notice">
           <div v-if="(visibleNotice || subagentInputRejected) && !interactionState.expanded" class="composer-notice" role="status">
             <template v-if="subagentInputRejected">
@@ -1633,16 +1636,18 @@ onUnmounted(() => {
             <span v-else>{{ visibleNotice }}</span>
           </div>
         </Transition>
-        <div class="composer-dock" :inert="interactionState.expanded" :aria-hidden="interactionState.expanded || undefined"><div class="composer-dock-content">
+        </div>
+        <div class="composer-dock" :inert="interactionState.expanded && !!capabilities.interactions" :aria-hidden="interactionState.expanded && !!capabilities.interactions || undefined"><div class="composer-dock-content">
         <form class="composer" :class="{ expanded: composerExpanded, 'has-message': hasMessage, 'task-active': active }" @submit.prevent="send()" @click.self="voice.clear(); composer?.focus()">
           <input ref="imagePicker" class="hidden-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple aria-label="选择发送的图片" @change="addImages" />
           <div class="composer-content" @input="($event as InputEvent).isComposing && resizeComposer()">
             <ImagePreview v-if="draftImages.length" class="composer-attachments" aria-label="待发送的图片">
               <TransitionGroup name="attachment" appear>
               <div v-for="image in draftImages" :key="image.id" class="draft-image" :class="{ 'image-failed': image.status === 'error' }">
-                <img :src="image.previewUrl || mediaUrl(image.url)" :alt="image.name" role="button" tabindex="0" :aria-label="'查看待发送图片：' + image.name" aria-haspopup="dialog" />
+                <img :src="image.previewUrl || mediaUrl(image.url)" :alt="image.name" role="button" tabindex="0" :aria-label="'查看待发送图片：' + image.name" aria-haspopup="dialog" @error="attachments.checkPreview(image.id, draftKey)" />
                 <button type="button" class="remove-image" :aria-label="'移除图片：' + image.name" @click="attachments.remove(image.id)"><Close /></button>
                 <span v-if="image.status === 'uploading'" class="image-state" role="status"><Loading class="is-spin" />上传中</span>
+                <span v-else-if="image.unavailable" class="image-state" role="status" :title="image.error || '请移除后重新选择图片'">已失效</span>
                 <button v-else-if="image.status === 'error'" type="button" class="image-retry" :aria-label="'重试上传：' + image.name" :title="image.error" @click="attachments.retry(image.id)"><Refresh />重试</button>
               </div>
               </TransitionGroup>
@@ -1667,7 +1672,7 @@ onUnmounted(() => {
             <motion.div v-if="composerMenu" key="composer-menu" id="composer-menu" class="composer-menu" role="menu" aria-label="添加内容和工作模式" :initial="closedComposerMenu" :animate="{ opacity: 1, y: 0, scale: 1 }" :exit="closedComposerMenu" :transition="controlSpring" @click.stop @keydown.esc.stop.prevent="composerMenu = false; composerPlus?.focus({ preventScroll: true })">
               <p class="composer-menu-heading">添加内容</p>
               <button type="button" role="menuitem" @click="pickImages"><Picture />添加照片</button>
-              <button type="button" role="menuitem" :disabled="!capabilities.catalog" @click="openContext"><DocumentAdd />添加上下文</button>
+              <button type="button" role="menuitem" :disabled="!capabilities.contextReferences && !capabilities.catalog" @click="openContext"><DocumentAdd />添加上下文</button>
               <button v-if="selectedId && !capabilities.native" type="button" role="menuitem" :disabled="!capabilities.send || sending || imagesUploading || imageErrors || streamStatus !== 'connected'" @click="openDelegation"><Connection />交给子智能体</button>
               <div class="composer-menu-divider"></div>
               <p class="composer-menu-heading">工作模式</p>
@@ -1684,7 +1689,7 @@ onUnmounted(() => {
       </div>
     </section>
     <AgentDelegation v-if="selectedId && capabilities.send && !capabilities.native" :open="delegationOpen" :targets="delegationTargets" :initial-task="splitDraftContext(delegationSource).text" :busy="sending" :error="delegationError" :unavailable="streamStatus !== 'connected' ? '连接恢复后可委派任务' : imagesUploading ? '图片上传完成后可委派任务' : imageErrors ? '请先重试或移除上传失败的图片' : ''" @submit="delegate" @close="closeDelegation" @after-close="restoreComposerFocus" />
-    <ComposerContext :open="contextOpen && !!capabilities.catalog" :thread-id="selectedId" :project-id="selectedProjectId" :threads="threads" @close="closeContext" @select="insertContext" @after-close="restoreComposerFocus" />
+    <ComposerContext :open="contextOpen && !!(capabilities.contextReferences || capabilities.catalog)" :thread-id="selectedId" :project-id="selectedProjectId" :source-thread-id="creationSource" :threads="threads" @close="closeContext" @select="insertContext" @after-close="restoreComposerFocus" />
     <GoalPanel :open="goalOpen && !!capabilities.goals" :thread-id="selectedId" :goal="selectedThread?.goal" :completed-goal="selectedThread?.completedGoal" :initial-objective="draftParts.text" :create-goal="createGoal" @close="goalOpen = false" @changed="applyGoal" @after-close="restoreComposerFocus" />
     <NativeSheet :open="projectPickerOpen" labelledby="project-picker-title" panel-class="settings-modal workspace-sheet" @close="projectPickerOpen = false" @after-close="newChat && restoreComposerFocus()">
       <div class="modal-heading"><h2 id="project-picker-title">{{ creationSource ? '选择项目' : '选择来源聊天' }}</h2><button type="button" class="icon-button" aria-label="关闭新建选择" @click="projectPickerOpen = false"><Close aria-hidden="true" /></button></div>
@@ -1732,7 +1737,7 @@ onUnmounted(() => {
         <p v-if="disconnectError" id="disconnect-error" ref="disconnectFailure" class="error-text" role="alert">{{ disconnectError }}</p>
       </section>
     </NativeSheet>
-    <UpdateSettings :open="updateSettingsOpen" :upgrading="desktopUpgrade.upgrading.value" :start-upgrade="desktopUpgrade.start" @close="updateSettingsOpen = false" @closed="appUpdate.reload" />
+    <UpdateSettings :open="updateSettingsOpen" :upgrading="desktopUpgrade.upgrading.value" :progress="desktopUpgrade.progress.value" :start-upgrade="desktopUpgrade.start" @close="updateSettingsOpen = false" @closed="appUpdate.reload" />
   </div>
   <QrConnect v-if="scanOpen && !authenticated" @close="scanOpen = false" @connect="connectScanned" />
 </template>

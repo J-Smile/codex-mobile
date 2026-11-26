@@ -174,7 +174,7 @@ async fn launcher_follows_installation_and_falls_back_when_current_is_missing() 
     );
     let source = Updates::new(data, false).unwrap();
     assert!(source
-        .prepare("0.3.0")
+        .prepare("0.3.0", |_| async {})
         .await
         .unwrap_err()
         .message

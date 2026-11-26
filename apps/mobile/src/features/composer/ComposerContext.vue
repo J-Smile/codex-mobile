@@ -7,7 +7,7 @@ import type { ContextCatalog, ContextEntry } from './composerContext';
 import type { DesktopThread } from '../../types';
 import NativeSheet from '../../components/NativeSheet.vue';
 
-const props = defineProps<{ open: boolean; threadId?: string; projectId?: string; threads: DesktopThread[] }>();
+const props = defineProps<{ open: boolean; threadId?: string; projectId?: string; sourceThreadId?: string; threads: DesktopThread[] }>();
 const emit = defineEmits<{ close: []; select: [mention: string]; 'after-close': [] }>();
 const titleId = useId();
 const query = ref('');
@@ -26,19 +26,25 @@ const sections = computed(() => [
   { id: 'browser', title: '标签页', items: catalog.value.browserTabs, empty: catalog.value.browserMessage || '没有匹配的浏览器标签页' },
   { id: 'files', title: '文件和聊天', items: [...catalog.value.files, ...chatResults.value],
     empty: catalog.value.fileMessage || (query.value.trim() ? '没有匹配的文件或聊天' : '输入名称以查找文件或聊天') },
-].sort((a, b) => Number(b.items.length > 0) - Number(a.items.length > 0)));
+].filter((section) => section.id === 'files' || (!loading.value && !error.value && catalog.value.mode !== 'references'))
+  .sort((a, b) => Number(b.items.length > 0) - Number(a.items.length > 0)));
 const icons = { plugin: Connection, file: Document, browser: Monitor, thread: ChatLineRound };
 
-watch([() => props.open, () => props.threadId, () => props.projectId, query, retry], ([open, threadId, projectId, search], _, cleanup) => {
+watch([() => props.open, () => props.threadId, () => props.projectId, query, retry, () => props.sourceThreadId], ([open, threadId, projectId, search, , sourceThreadId], _, cleanup) => {
+  catalog.value = { mode: catalog.value.mode, plugins: [], browserTabs: [], files: [] };
+  loading.value = false;
+  error.value = '';
   if (!open) return;
   loading.value = true;
-  error.value = '';
   const controller = new AbortController();
   const timer = setTimeout(async () => {
     try {
       const params = new URLSearchParams({ query: search });
       if (threadId) params.set('threadId', threadId);
-      else if (projectId) params.set('projectId', projectId);
+      else if (projectId) {
+        params.set('projectId', projectId);
+        if (sourceThreadId) params.set('sourceThreadId', sourceThreadId);
+      }
       const result = await request<ContextCatalog>('/api/context?' + params.toString(), { signal: controller.signal });
       if (!controller.signal.aborted) catalog.value = result;
     } catch (failure) { if (!controller.signal.aborted) error.value = (failure as Error).message; }
@@ -54,10 +60,10 @@ function select(entry: ContextEntry) { emit('select', entry.mention); }
   <NativeSheet :open="open" :labelledby="titleId" panel-class="settings-modal" style="--sheet-width: 460px" @close="emit('close')" @after-close="query = ''; emit('after-close')">
       <section class="context-sheet">
         <header class="modal-heading"><h2 :id="titleId">添加上下文</h2><button type="button" class="icon-button" aria-label="关闭上下文选择" @click="emit('close')"><Close /></button></header>
-        <label class="context-search"><Search /><input v-model="query" aria-label="搜索插件、文件或聊天" placeholder="搜索插件、文件或聊天" autocomplete="off" autofocus /><span v-if="loading" class="context-loading" role="status" aria-label="正在查找" /></label>
+        <label class="context-search"><Search /><input v-model="query" :aria-label="catalog.mode === 'references' ? '搜索文件或聊天' : '搜索插件、文件或聊天'" :placeholder="catalog.mode === 'references' ? '搜索文件或聊天' : '搜索插件、文件或聊天'" autocomplete="off" autofocus /><span v-if="loading" class="context-loading" role="status" aria-label="正在查找" /></label>
+        <p v-if="catalog.mode === 'references'" class="context-empty">文件和聊天会作为文字引用加入消息，由当前聊天读取。</p>
         <div class="context-results" :aria-busy="loading">
           <div v-if="error" class="context-error" role="alert"><span>{{ error }}</span><button type="button" class="text-button" @click="retry++">重新读取上下文</button></div>
-          <template v-else>
           <section v-for="section in sections" :key="section.id" class="context-section" :aria-labelledby="titleId + '-' + section.id">
             <h3 :id="titleId + '-' + section.id">{{ section.title }}</h3>
             <button v-for="entry in section.items" :key="entry.id" type="button" class="context-result" :title="entry.description" @click="select(entry)">
@@ -66,7 +72,6 @@ function select(entry: ContextEntry) { emit('select', entry.mention); }
             </button>
             <p v-if="!section.items.length && !loading" class="context-empty">{{ section.empty }}</p>
           </section>
-          </template>
         </div>
       </section>
   </NativeSheet>

@@ -11,7 +11,7 @@ interface HookReviewData {
   sources: HookSource[];
   issues: { path: string; message: string }[];
 }
-const props = defineProps<{ threadId: string | null }>();
+const props = defineProps<{ threadId: string | null; desktopSupported?: boolean }>();
 const emit = defineEmits<{ open: []; 'after-close': [] }>();
 const titleId = useId();
 const open = ref(false);
@@ -22,6 +22,7 @@ const error = ref('');
 const desktopError = ref('');
 const data = ref<HookReviewData | null>(null);
 let controller: AbortController | undefined;
+let desktopController: AbortController | undefined;
 
 async function load() {
   if (!props.threadId || !open.value) return;
@@ -39,13 +40,14 @@ async function load() {
 }
 watch(() => props.threadId, () => { open.value = false; });
 watch(open, async (visible, _, cleanup) => {
-  cleanup(() => controller?.abort());
+  cleanup(() => { controller?.abort(); desktopController?.abort(); });
+  openingDesktop.value = false;
   if (!visible) return;
   openedDesktop.value = false;
   desktopError.value = '';
   await load();
 });
-onBeforeUnmount(() => controller?.abort());
+onBeforeUnmount(() => { controller?.abort(); desktopController?.abort(); });
 
 function show() {
   if (!props.threadId) return;
@@ -57,17 +59,19 @@ function events(source: HookSource) {
   return hooks && typeof hooks === 'object' ? Object.keys(hooks).join(' · ') : '';
 }
 async function openDesktop() {
-  if (!props.threadId || openingDesktop.value) return;
+  if (!open.value || !props.threadId || !props.desktopSupported || openingDesktop.value) return;
   const threadId = props.threadId;
+  const pending = new AbortController();
+  desktopController = pending;
   openingDesktop.value = true;
   openedDesktop.value = false;
   desktopError.value = '';
   try {
-    const result = await request<{ ok: boolean }>(threadUrl(threadId, 'open'), { method: 'POST' });
+    const result = await request<{ ok: boolean }>(threadUrl(threadId, 'open'), { method: 'POST', signal: pending.signal });
     if (!result.ok) throw new Error('无法打开电脑上的对话，请稍后重试。');
-    if (props.threadId === threadId) openedDesktop.value = true;
-  } catch (failure) { if (props.threadId === threadId) desktopError.value = (failure as Error).message; }
-  finally { openingDesktop.value = false; }
+    if (!pending.signal.aborted && props.threadId === threadId) openedDesktop.value = true;
+  } catch (failure) { if (!pending.signal.aborted && props.threadId === threadId) desktopError.value = (failure as Error).message; }
+  finally { if (!pending.signal.aborted) openingDesktop.value = false; }
 }
 </script>
 
@@ -92,7 +96,7 @@ async function openDesktop() {
         <div v-if="error" class="hook-error" role="alert"><p>{{ error }}</p><button type="button" class="hook-retry" :disabled="loading" @click="load">重新读取</button></div>
         <p v-if="desktopError" class="hook-error" role="alert">{{ desktopError }}</p>
         <p v-if="openedDesktop" class="hook-description" role="status">已打开电脑上的对话，请在输入框的 Review hooks 中审阅。</p>
-        <footer><button type="button" class="primary-button hook-desktop" :disabled="openingDesktop" @click="openDesktop"><Loading v-if="openingDesktop" class="is-spin" /><Monitor v-else />{{ openingDesktop ? '正在打开…' : desktopError ? '重试打开' : '在电脑审阅' }}</button></footer>
+        <footer v-if="desktopSupported"><button type="button" class="primary-button hook-desktop" :disabled="openingDesktop" @click="openDesktop"><Loading v-if="openingDesktop" class="is-spin" /><Monitor v-else />{{ openingDesktop ? '正在打开…' : desktopError ? '重试打开' : '在电脑审阅' }}</button></footer>
       </section>
   </NativeSheet>
 </template>

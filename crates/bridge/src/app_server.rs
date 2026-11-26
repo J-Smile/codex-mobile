@@ -252,7 +252,7 @@ impl AppServerConnection {
         let (pipe, owner) = crate::native::discover(paths).await?;
         Self::connect_native_pipe(pipe, owner).await
     }
-    async fn connect_native_pipe(
+    pub(crate) async fn connect_native_pipe(
         pipe: Pipe,
         owner: crate::native::NativeOwner,
     ) -> Result<Arc<Self>> {

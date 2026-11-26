@@ -22,6 +22,12 @@ pub struct Session {
 }
 
 impl Session {
+    #[cfg(test)]
+    pub(crate) fn install_native(&self, connection: Arc<AppServerConnection>) {
+        assert!(connection.is_native() && connection.is_alive() && connection.owner_valid());
+        *self.current.write().unwrap() = Some(connection);
+    }
+
     pub fn new(paths: Paths) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let (connections, _) = broadcast::channel(16);
@@ -158,9 +164,23 @@ impl Session {
         let native = status["native"] == true;
         let connected =
             (native || crate::runtime::SHARED_RUNTIME_VERIFIED) && status["connected"] == true;
+        let desktop_navigation = connected
+            && self
+                .current
+                .read()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|connection| {
+                    connection.is_native()
+                        && connection.is_alive()
+                        && connection.owner_valid()
+                        && crate::native::navigation_supported(&connection.initialized)
+                });
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
         json!({"readLive":connected,"send":connected,"queue":connected && !native,"catalog":false,
             "native":native,"create":native,"images":connected,"imageReferences":native,
+            "desktopNavigation":desktop_navigation,
+            "contextReferences":connected,
             "modelSelection":native && self.model_efforts().is_some(),
             "resume":false,"queueStart":false,"queueReorder":false,"queueEdit":false,
             "interrupt":false,"interactions":false,"settings":false,"goals":false})

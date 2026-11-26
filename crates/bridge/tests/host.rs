@@ -49,6 +49,31 @@ async fn status_and_stop_do_not_connect_or_start_desktop() {
 }
 
 #[tokio::test]
+async fn update_preparation_stays_exclusive_at_every_stage_and_failures_release_it() {
+    let f = support::Fixture::new();
+    let host = Host::open(f.paths.clone(), false).unwrap();
+    for stage in ["checking", "downloading", "verifying", "extracting"] {
+        let state = json!({"phase":"checking","stage":stage,"message":"fixture progress","downloadedBytes":128,"totalBytes":null});
+        *host.update_state.write().await = state.clone();
+        assert!(!host.prepare_update().await.unwrap());
+        assert_eq!(*host.update_state.read().await, state);
+    }
+    *host.update_state.write().await = json!({"phase":"idle"});
+    for _ in 0..2 {
+        assert!(host
+            .prepare_update()
+            .await
+            .unwrap_err()
+            .message
+            .contains("源码运行"));
+        let state = host.update_state.read().await;
+        assert_eq!(state["phase"], "error");
+        assert_eq!(state["stage"], "checking");
+        assert!(state["stageTimingsMs"]["checking"].is_u64());
+    }
+}
+
+#[tokio::test]
 async fn desktop_connection_reports_start_failure_and_can_retry() {
     let f = support::Fixture::new();
     let _mock = support::MockDesktop::start(&f).await;

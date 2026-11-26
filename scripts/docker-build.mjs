@@ -27,6 +27,27 @@ try {
       fs.rmSync(destination, { recursive: true, force: true });
       fs.cpSync(path.join(temporary, 'dist', name), destination, { recursive: true });
     }
+  } else {
+    const output = path.join(os.homedir(), '.codex', 'artifacts', 'codex-mobile', 'docker-regression', new Date().toISOString().replaceAll(':', '-'));
+    fs.mkdirSync(output, { recursive: true });
+    const image = 'codex-mobile-browser-test:' + randomUUID();
+    const built = spawnSync('docker', ['buildx', 'build', '--file', 'deploy/relay/Dockerfile',
+      '--target', 'browser-check', '--tag', image, '--load', '.'], { cwd: root, stdio: 'inherit', windowsHide: true });
+    if (built.error) throw built.error;
+    if (built.status !== 0) process.exitCode = built.status ?? 1;
+    else {
+      try {
+        const tested = spawnSync('docker', ['run', '--rm', '--init', '--network', 'none',
+          '--mount', `type=bind,source=${output},target=/results`, image], { cwd: root, stdio: 'inherit', windowsHide: true });
+        if (tested.error) throw tested.error;
+        if (tested.status !== 0) process.exitCode = tested.status ?? 1;
+      } finally {
+        // 仅删除本次生成的临时测试镜像标签；截图和报告始终保留。
+        const removed = spawnSync('docker', ['image', 'rm', image], { cwd: root, stdio: 'pipe', windowsHide: true });
+        if (removed.status !== 0) console.warn(`临时测试镜像未清理：${image}`);
+        console.log(`浏览器回归报告：${output}`);
+      }
+    }
   }
 } finally {
   if (temporary) fs.rmSync(temporary, { recursive: true, force: true });

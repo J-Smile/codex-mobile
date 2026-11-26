@@ -192,6 +192,7 @@ function render() {
   const settings = state.updateSettings;
   const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停，可手动检查更新。' : '自动检查公开版本，无需配置 token。';
   statusText('update-status', state.update.message || mode);
+  if (state.update.phase === 'checking' && button('check-update').getAttribute('aria-busy') === 'true') feedback(state.update.message);
   element('update-status').classList.toggle('error-text', state.update.phase === 'error');
   element('token-state').textContent = settings.configured ? '公开仓库 · 已配置 token' : '公开仓库 · 免 token';
   element('release-preview').hidden = !state.release;
@@ -446,4 +447,4 @@ try { await refresh(true);await refreshPairing(); }
 catch (error) { feedback(errorMessage(error), true); statusText('service-state', '无法读取桌面状态'); statusText('qr-empty', '请从桌面程序打开此页面'); }
 try { startupEnabled = await request<boolean>('get_autostart');render(); }
 catch (error) { element('startup-hint').textContent=errorMessage(error);element('startup-hint').classList.add('error-text'); }
-setInterval(() => { if (!busy && !document.hidden) void refresh(!state).catch(error => feedback(errorMessage(error), true)); }, 2500);
+setInterval(() => { if ((!busy || button('check-update').getAttribute('aria-busy') === 'true') && !document.hidden) void refresh(!state).catch(error => feedback(errorMessage(error), true)); }, 2500);

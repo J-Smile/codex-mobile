@@ -24,6 +24,18 @@ pub mod relay;
 pub mod runtime;
 pub mod session;
 pub mod state;
+mod submissions;
+#[cfg(test)]
+extern crate self as codex_mobile_bridge;
+#[cfg(test)]
+#[path = "../tests/support/native_pipe.rs"]
+pub(crate) mod native_test_support;
+#[cfg(test)]
+#[path = "../tests/support/restoration_lifecycle.rs"]
+mod restoration_lifecycle;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;
 pub mod transport;
 pub mod updates;
 pub mod usage;

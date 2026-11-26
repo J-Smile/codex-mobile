@@ -6,7 +6,7 @@ import CollapseMotion from '../../components/CollapseMotion.vue';
 import { request } from '../../api';
 import type { DesktopUpdateSettings } from './useDesktopUpgrade';
 
-const props = defineProps<{ open: boolean; upgrading: boolean; startUpgrade: (version: string) => Promise<void> }>();
+const props = defineProps<{ open: boolean; upgrading: boolean; progress?: DesktopUpdateSettings['update']; startUpgrade: (version: string) => Promise<void> }>();
 const emit = defineEmits<{ close: []; closed: [] }>();
 const status = ref<DesktopUpdateSettings>();
 const loading = ref(false);
@@ -91,6 +91,7 @@ onBeforeUnmount(() => { controller?.abort(); token.value = ''; });
       <p v-else-if="!status.update" class="update-mode muted">请先在电脑上更新 Codex Mobile，即可从手机发起升级。</p>
       <p v-else class="update-mode muted">从公开仓库获取正式版本，无需配置 token。</p>
       <button v-if="canUpgrade" type="button" class="primary-button" :disabled="!!busy || upgrading" :aria-busy="upgrading" @click="upgrade">{{ upgrading ? '正在后台升级…' : '立即升级' }}</button>
+      <p v-if="upgrading && progress?.message" class="update-mode muted" role="status">{{ progress.message }}</p>
       <button type="button" class="settings-row settings-action update-source" :aria-expanded="sourceOpen" aria-controls="update-source-content" @click="sourceOpen = !sourceOpen"><span>更新来源</span><ArrowRight :class="{ 'guide-expanded': sourceOpen }" /></button>
       <CollapseMotion :open="sourceOpen">
         <div id="update-source-content">

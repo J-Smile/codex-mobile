@@ -8,17 +8,18 @@ use crate::{
     session::Session,
     BridgeError, Result,
 };
+use futures_util::{future::BoxFuture, future::Shared, FutureExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Weak,
     },
     time::Duration,
 };
-use tokio::sync::{watch, Mutex, RwLock};
+use tokio::sync::{watch, Mutex, Notify, RwLock};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[derive(Clone, Default, Debug)]
@@ -33,6 +34,33 @@ pub struct Follow {
     pub updates: watch::Sender<LiveView>,
     pub state: RwLock<LiveState>,
     connection: RwLock<Option<Arc<AppServerConnection>>>,
+    refresh: Notify,
+}
+
+type NativeReadFuture = Shared<BoxFuture<'static, Result<Value>>>;
+type NativeReads = std::sync::Mutex<HashMap<(String, String), Weak<NativeReadFuture>>>;
+
+struct NativeRead<'a> {
+    reads: &'a NativeReads,
+    key: (String, String),
+    future: Option<Arc<NativeReadFuture>>,
+}
+
+impl Drop for NativeRead<'_> {
+    fn drop(&mut self) {
+        let mut reads = self.reads.lock().unwrap();
+        let future = self.future.take().unwrap();
+        let completed = future.peek().is_some();
+        let current = reads
+            .get(&self.key)
+            .is_some_and(|read| read.ptr_eq(&Arc::downgrade(&future)));
+        // 在同一把锁内释放等待者，避免并发取消各自看到对方仍在等待。
+        drop(future);
+        // 结果只属于本次等待；取消最后一个等待者时也释放原 RPC。
+        if current && (completed || reads.get(&self.key).and_then(Weak::upgrade).is_none()) {
+            reads.remove(&self.key);
+        }
+    }
 }
 
 pub struct Desktop {
@@ -43,6 +71,7 @@ pub struct Desktop {
     owns_session: bool,
     catalog_hydration: Mutex<()>,
     native_threads: RwLock<HashMap<String, Value>>,
+    native_reads: NativeReads,
     catalog_instance: Mutex<Option<String>>,
     follows: std::sync::Mutex<HashMap<String, Arc<Follow>>>,
     queue_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -71,6 +100,7 @@ impl Desktop {
             owns_session,
             catalog_hydration: Mutex::new(()),
             native_threads: RwLock::new(HashMap::new()),
+            native_reads: std::sync::Mutex::new(HashMap::new()),
             catalog_instance: Mutex::new(None),
             follows: std::sync::Mutex::new(HashMap::new()),
             queue_locks: Mutex::new(HashMap::new()),
@@ -245,23 +275,49 @@ impl Desktop {
         serde_json::from_str(&text)
             .map_err(|_| BridgeError::unavailable("官方桌面回执无法识别，请核对操作结果。"))
     }
-    async fn native_read(&self, connection: &AppServerConnection, id: &str) -> Result<Value> {
+    async fn native_read(&self, connection: &Arc<AppServerConnection>, id: &str) -> Result<Value> {
         if uuid::Uuid::parse_str(id).is_err() {
             return Err(BridgeError::invalid("聊天编号无效。").before_send());
         }
-        let payload = Self::native_call(connection, id, "read_thread", json!({
-            "threadId":id,"hostId":"local","turnLimit":5,"includeOutputs":false,"maxOutputCharsPerItem":20000,
-        }), None).await.map_err(BridgeError::before_send)?;
-        if payload["schemaVersion"] != 1
-            || payload["thread"]["id"] != id
-            || payload["thread"]["kind"] != "codex"
-            || payload["thread"]["hostId"] != "local"
-            || !payload["turns"].is_array()
-        {
-            return Err(
-                BridgeError::new(403, "官方桌面未确认此聊天的本机归属，保留历史阅读。")
-                    .before_send(),
-            );
+        let key = (connection.id.clone(), id.to_owned());
+        let future = {
+            let mut reads = self.native_reads.lock().unwrap();
+            if let Some(read) = reads
+                .get(&key)
+                .and_then(Weak::upgrade)
+                .filter(|read| read.peek().is_none())
+            {
+                read
+            } else {
+                let connection = connection.clone();
+                let id = id.to_owned();
+                let read = Arc::new(async move {
+                    let payload = Self::native_call(&connection, &id, "read_thread", json!({
+                        "threadId":id,"hostId":"local","turnLimit":5,"includeOutputs":false,"maxOutputCharsPerItem":20000,
+                    }), None).await.map_err(BridgeError::before_send)?;
+                    if payload["schemaVersion"] != 1
+                        || payload["thread"]["id"] != id
+                        || payload["thread"]["kind"] != "codex"
+                        || payload["thread"]["hostId"] != "local"
+                        || !payload["turns"].is_array()
+                    {
+                        return Err(BridgeError::new(403, "官方桌面未确认此聊天的本机归属，保留历史阅读。").before_send());
+                    }
+                    Ok(payload)
+                }.boxed().shared());
+                reads.insert(key.clone(), Arc::downgrade(&read));
+                read
+            }
+        };
+        let read = NativeRead {
+            reads: &self.native_reads,
+            key,
+            future: Some(future),
+        };
+        let payload = read.future.as_ref().unwrap().as_ref().clone().await?;
+        drop(read);
+        if !connection.is_alive() || !connection.owner_valid() {
+            return Err(BridgeError::unavailable("官方桌面连接已失效，请重新连接。").before_send());
         }
         self.native_threads
             .write()
@@ -391,7 +447,7 @@ impl Desktop {
         let connection = self.session.connect().await?;
         self.authorize_on(&connection, id).await
     }
-    async fn authorize_on(&self, connection: &AppServerConnection, id: &str) -> Result<()> {
+    async fn authorize_on(&self, connection: &Arc<AppServerConnection>, id: &str) -> Result<()> {
         self.check_instance(connection).await;
         self.require_route(connection, id).await?;
         if connection.is_native() {
@@ -407,7 +463,7 @@ impl Desktop {
         }
         Ok(())
     }
-    async fn require_route(&self, connection: &AppServerConnection, id: &str) -> Result<()> {
+    async fn require_route(&self, connection: &Arc<AppServerConnection>, id: &str) -> Result<()> {
         if connection.is_native() {
             self.native_read(connection, id).await?;
             return Ok(());
@@ -440,6 +496,7 @@ impl Desktop {
             updates,
             state: RwLock::new(LiveState::default()),
             connection: RwLock::new(None),
+            refresh: Notify::new(),
         });
         follows.insert(id.to_string(), follow.clone());
         let this = self.clone();
@@ -639,6 +696,7 @@ impl Desktop {
                     continue;
                 }
                 _ = refresh.tick() => None,
+                _ = follow.refresh.notified() => None,
                 valid = async {
                     match rollout.as_mut() {
                         Some(watch) => watch.changed().await,
@@ -861,6 +919,10 @@ impl Desktop {
                     "发送回执的聊天编号不一致，请在桌面核对。",
                 ));
             }
+            if let Some(follow) = self.follows.lock().unwrap().get(id) {
+                // 已接受的输入沿现有订阅立即核对，不另建轮询或改变订阅寿命。
+                follow.refresh.notify_one();
+            }
             return Ok(json!({"status":"accepted","threadId":id,"messageId":message_id}));
         }
         let lock = self.queue_lock(id).await;
@@ -884,7 +946,7 @@ impl Desktop {
     }
     async fn native_snapshot(
         &self,
-        connection: &AppServerConnection,
+        connection: &Arc<AppServerConnection>,
         id: &str,
         history_ready: Option<tokio::time::Instant>,
     ) -> Result<Value> {
@@ -951,6 +1013,14 @@ fn merge_native_snapshot(mut history: Value, payload: Value) -> Value {
         }
     }
     turns.sort_by_key(|turn| turn["startedAt"].as_i64().unwrap_or(0));
+    let mut interactions = crate::interactions::async_pending(&turns);
+    for entry in &mut interactions {
+        entry["replySupported"] = json!(false);
+        entry["skipSupported"] = json!(false);
+        entry["desktopMessage"] =
+            json!("当前连接不支持在手机回复此问题，请在电脑上的 Codex 处理。");
+    }
+    history["interactions"] = json!(interactions);
     history["turns"] = Value::Array(turns);
     history["connection"] = json!("live");
     // 沿用旧客户端识别原生桌面快照及首轮回执的协议值。
@@ -968,13 +1038,249 @@ fn merge_native_snapshot(mut history: Value, payload: Value) -> Value {
         })
         .map(|turn| turn["id"].clone())
         .unwrap_or(Value::Null);
-    history["interactions"] = json!([]);
     history
 }
 
 #[cfg(test)]
 mod native_tests {
     use super::*;
+    use crate::{
+        native_test_support::{NativePipe, CHAT, OTHER},
+        test_support::Fixture,
+    };
+
+    async fn read_fixture() -> (
+        Fixture,
+        Arc<Desktop>,
+        Arc<NativePipe>,
+        Arc<AppServerConnection>,
+    ) {
+        let fixture = Fixture::new();
+        let (peer, connection) = NativePipe::start(&fixture.paths).await;
+        let session = Session::new(fixture.paths.clone());
+        session.install_native(connection.clone());
+        let desktop = Desktop::with_session(
+            fixture.paths.clone(),
+            Arc::new(History::new(fixture.paths.codex_home.clone())),
+            session,
+        );
+        (fixture, desktop, peer, connection)
+    }
+
+    #[tokio::test]
+    async fn concurrent_native_reads_share_only_the_current_request() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        peer.hold_reads.store(true, Ordering::Release);
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut second = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        peer.wait_calls("read_thread", 1).await;
+        peer.release_reads.add_permits(1);
+        let first = first.await.unwrap();
+        assert_eq!(peer.count("read_thread").await, 1);
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+
+        peer.reads.lock().await.get_mut(CHAT).unwrap()["thread"]["title"] = json!("新读取");
+        let mut next = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut next).is_pending());
+        peer.wait_calls("read_thread", 2).await;
+        assert_eq!(second.await.unwrap(), first);
+        assert_eq!(desktop.native_reads.lock().unwrap().len(), 1);
+        peer.release_reads.add_permits(1);
+        assert_eq!(next.await.unwrap()["thread"]["title"], "新读取");
+        assert_eq!(peer.count("read_thread").await, 2);
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        connection.close();
+    }
+
+    #[tokio::test]
+    async fn native_reads_never_share_across_threads_or_generations() {
+        let (fixture, desktop, peer, connection) = read_fixture().await;
+        let (next_peer, next_connection) = NativePipe::start(&fixture.paths).await;
+        assert_ne!(connection.id, next_connection.id);
+        assert_eq!(connection.runtime_id(), next_connection.runtime_id());
+        peer.hold_reads.store(true, Ordering::Release);
+        next_peer.hold_reads.store(true, Ordering::Release);
+        next_peer.reads.lock().await.get_mut(CHAT).unwrap()["thread"]["title"] = json!("新连接");
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut other = Box::pin(desktop.native_read(&connection, OTHER));
+        let mut next = Box::pin(desktop.native_read(&next_connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut other).is_pending());
+        assert!(futures_util::poll!(&mut next).is_pending());
+        peer.wait_calls("read_thread", 2).await;
+        next_peer.wait_calls("read_thread", 1).await;
+        peer.release_reads.add_permits(2);
+        next_peer.release_reads.add_permits(1);
+        let (first, other, next) = tokio::join!(first, other, next);
+        assert_eq!(first.unwrap()["thread"]["id"], CHAT);
+        assert_eq!(other.unwrap()["thread"]["id"], OTHER);
+        assert_eq!(next.unwrap()["thread"]["title"], "新连接");
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        connection.close();
+        next_connection.close();
+    }
+
+    #[tokio::test]
+    async fn failed_native_read_reaches_all_waiters_and_is_not_cached() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        peer.hold_reads.store(true, Ordering::Release);
+        peer.reads.lock().await.get_mut(CHAT).unwrap()["thread"]["hostId"] = json!("remote");
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut second = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        peer.wait_calls("read_thread", 1).await;
+        peer.release_reads.add_permits(1);
+        let (first, second) = tokio::join!(first, second);
+        for result in [first, second] {
+            let error = result.unwrap_err();
+            assert_eq!(error.status, 403);
+            assert!(error.before_send);
+        }
+        assert_eq!(peer.count("read_thread").await, 1);
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        assert!(!desktop.native_threads.read().await.contains_key(CHAT));
+
+        peer.hold_reads.store(false, Ordering::Release);
+        peer.reads.lock().await.get_mut(CHAT).unwrap()["thread"]["hostId"] = json!("local");
+        desktop.native_read(&connection, CHAT).await.unwrap();
+        assert_eq!(peer.count("read_thread").await, 2);
+        connection.close();
+    }
+
+    #[tokio::test]
+    async fn cancelling_one_native_reader_preserves_other_waiters() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        peer.hold_reads.store(true, Ordering::Release);
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut second = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        peer.wait_calls("read_thread", 1).await;
+        drop(first);
+        peer.release_reads.add_permits(1);
+        assert_eq!(second.await.unwrap()["thread"]["id"], CHAT);
+        assert_eq!(peer.count("read_thread").await, 1);
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        connection.close();
+    }
+
+    #[tokio::test]
+    async fn cancelling_all_native_readers_releases_the_request() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        peer.hold_reads.store(true, Ordering::Release);
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut second = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        peer.wait_calls("read_thread", 1).await;
+        std::thread::scope(|scope| {
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let concurrent = barrier.clone();
+            scope.spawn(move || {
+                concurrent.wait();
+                drop(first);
+            });
+            barrier.wait();
+            drop(second);
+        });
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+
+        let mut retry = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut retry).is_pending());
+        peer.wait_calls("read_thread", 2).await;
+        peer.release_reads.add_permits(2);
+        assert_eq!(retry.await.unwrap()["thread"]["id"], CHAT);
+        assert_eq!(peer.count("read_thread").await, 2);
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        connection.close();
+    }
+
+    #[tokio::test]
+    async fn disconnected_native_read_fails_all_waiters_without_authorizing() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        peer.hold_reads.store(true, Ordering::Release);
+        let mut first = Box::pin(desktop.native_read(&connection, CHAT));
+        let mut second = Box::pin(desktop.native_read(&connection, CHAT));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        peer.wait_calls("read_thread", 1).await;
+        connection.close();
+        let (first, second) = tokio::join!(first, second);
+        assert!(first.is_err());
+        assert!(second.is_err());
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        assert!(!desktop.native_threads.read().await.contains_key(CHAT));
+    }
+
+    #[tokio::test]
+    async fn accepted_send_refreshes_again_after_an_overlapping_native_read() {
+        let (_fixture, desktop, peer, connection) = read_fixture().await;
+        let mut live = desktop.subscribe(CHAT);
+        peer.wait_calls("read_thread", 2).await;
+        // 首帧和安装监听后的核对均结束后，再制造发送与读取的实际重叠。
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !desktop.native_reads.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        peer.hold_sends.store(true, Ordering::Release);
+        let send = {
+            let desktop = desktop.clone();
+            tokio::spawn(async move {
+                desktop
+                    .send_message(CHAT, "合成输入", "send-test", &[], &MessageModel::default())
+                    .await
+            })
+        };
+        peer.wait_calls("send_message_to_thread", 1).await;
+        peer.hold_reads.store(true, Ordering::Release);
+        desktop
+            .follows
+            .lock()
+            .unwrap()
+            .get(CHAT)
+            .unwrap()
+            .refresh
+            .notify_one();
+        peer.wait_calls("read_thread", 4).await;
+        peer.release_sends.add_permits(1);
+        assert_eq!(send.await.unwrap().unwrap()["status"], "accepted");
+        peer.release_reads.add_permits(1);
+        peer.wait_calls("read_thread", 5).await;
+        peer.reads.lock().await.get_mut(CHAT).unwrap()["turns"] = json!([
+            {"id":"confirmed-turn","startedAt":100,"status":"completed","items":[]}
+        ]);
+        peer.release_reads.add_permits(1);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            live.wait_for(|view| {
+                view.snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot["firstTurnObserved"] == "confirmed-turn")
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(peer.count("read_thread").await, 5);
+        drop(live);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while desktop.follows.lock().unwrap().contains_key(CHAT) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(desktop.native_reads.lock().unwrap().is_empty());
+        desktop.close().await;
+        connection.close();
+    }
+
     #[test]
     fn native_summary_updates_status_but_never_replaces_full_saved_content() {
         let history = json!({"thread":{"id":"chat","model":"saved-model"},"nextCursor":"older","turns":[{"id":"turn","startedAt":10,"status":"inProgress","items":[{"id":"user","type":"userMessage","text":"真实输入"},{"id":"reply","type":"agentMessage","text":"完整正文"}]}]});
@@ -986,6 +1292,34 @@ mod native_tests {
         assert_eq!(merged["nextCursor"], "older");
         assert_eq!(merged["thread"]["model"], "saved-model");
         assert_eq!(merged["firstTurnObserved"], "turn");
+    }
+
+    #[test]
+    fn native_questions_remain_readable_until_an_authoritative_answer() {
+        let history = json!({"thread":{"id":"chat"},"turns":[{"id":"turn","startedAt":10,"items":[{"id":"question","type":"agentMessage","questions":[{"title":"选择颜色","options":["蓝色","绿色"]}]}]}]});
+        let mut merged = merge_native_snapshot(history, json!({"turns":[]}));
+        assert_eq!(
+            merged["interactions"][0]["questions"][0]["question"],
+            "选择颜色"
+        );
+        assert_eq!(merged["interactions"][0]["replySupported"], false);
+        assert_eq!(merged["interactions"][0]["skipSupported"], false);
+        let reply = format!(
+            "<send_user_message_question_reply>{}</send_user_message_question_reply>",
+            json!([{"questionItemId":merged["interactions"][0]["questions"][0]["id"],"question":"选择颜色","answer":"蓝色"}])
+        );
+        // 委派工具文字或模型确认不能冒充官方问题生命周期结束。
+        merged["turns"][0]["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"delegation","type":"functionCallOutput","output":reply}));
+        merged = merge_native_snapshot(merged, json!({"turns":[]}));
+        assert_eq!(merged["interactions"].as_array().unwrap().len(), 1);
+        merged["turns"][0]["items"].as_array_mut().unwrap().push(
+            json!({"id":"answer","type":"userMessage","content":[{"type":"text","text":reply}]}),
+        );
+        merged = merge_native_snapshot(merged, json!({"turns":[]}));
+        assert!(merged["interactions"].as_array().unwrap().is_empty());
     }
 }
 

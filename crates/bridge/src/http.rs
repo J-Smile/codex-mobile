@@ -1,17 +1,18 @@
 use crate::{
     auth::{check_origin, header, Auth, RelayPhone},
-    config::{valid_model, MessageModel, ServiceConfig, EFFORTS},
+    config::{valid_model, ServiceConfig, EFFORTS},
     desktop::{Desktop, LiveView, QueueChange},
     goals::Goals,
     history::History,
     host::Host,
-    images::{image_ids, Images, MAX_IMAGE_BYTES},
+    images::{Images, MAX_IMAGE_BYTES},
     notifications::Notifications,
-    operations::{Claim, Operations},
+    operations::Operations,
     paths::Paths,
     relay::RemoteAccess,
     session::Session,
     state::{summarize_snapshot, text_append},
+    submissions::Submissions,
     updates::Updates,
     usage::{Usage, UsageQuery},
     BridgeError, Result,
@@ -43,15 +44,10 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::{broadcast, mpsc, watch, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_http::compression::CompressionLayer;
-
-struct PendingSend {
-    hash: String,
-    result: watch::Sender<Option<Result<Value>>>,
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TextAppends {
@@ -74,8 +70,7 @@ pub struct Bridge {
     host: Weak<Host>,
     images: Images,
     usage: Mutex<Option<Arc<Usage>>>,
-    sends: Mutex<HashMap<String, Arc<PendingSend>>>,
-    operations: Operations,
+    submissions: Arc<Submissions>,
     closing: AtomicBool,
     streams: CancellationToken,
     rotations: broadcast::Sender<()>,
@@ -182,6 +177,16 @@ impl Bridge {
         };
         let (rotations, _) = broadcast::channel(8);
         let operations = Operations::open(&paths.data_home)?;
+        let work = TaskTracker::new();
+        let abort_work = CancellationToken::new();
+        let submissions = Submissions::new(
+            operations,
+            session.clone(),
+            desktop.clone(),
+            images.clone(),
+            work.clone(),
+            abort_work.clone(),
+        );
         Ok(Arc::new(Self {
             paths,
             config,
@@ -196,13 +201,12 @@ impl Bridge {
             host,
             images,
             usage: Mutex::new(None),
-            sends: Mutex::new(HashMap::new()),
-            operations,
+            submissions,
             closing: AtomicBool::new(false),
             streams: CancellationToken::new(),
             rotations,
-            work: TaskTracker::new(),
-            abort_work: CancellationToken::new(),
+            work,
+            abort_work,
         }))
     }
     pub async fn start(self: &Arc<Self>) -> Result<Server> {
@@ -303,80 +307,6 @@ impl Bridge {
             }}
         }
     }
-    async fn dedup<F>(
-        self: &Arc<Self>,
-        owner: String,
-        key: String,
-        hash: String,
-        target: String,
-        kind: &'static str,
-        operation: F,
-    ) -> Result<Value>
-    where
-        F: std::future::Future<Output = Result<Value>> + Send + 'static,
-    {
-        let instance = self
-            .session
-            .connect()
-            .await?
-            .runtime_id()
-            .ok_or_else(|| BridgeError::unavailable("没有有效的本机实例。").before_send())?;
-        let cache_key = format!("{owner}:{key}");
-        let pending = {
-            let mut sends = self.sends.lock().await;
-            if let Some(pending) = sends.get(&cache_key) {
-                if pending.hash != hash {
-                    return Err(BridgeError::new(409, "发送编号已用于其他消息。"));
-                }
-                pending.clone()
-            } else {
-                match self
-                    .operations
-                    .claim(&owner, &key, &hash, &instance, &target, kind)?
-                {
-                    Claim::Saved(result) => return result,
-                    Claim::Dispatch => {}
-                }
-                let (result, _) = watch::channel(None);
-                let pending = Arc::new(PendingSend { hash, result });
-                sends.insert(cache_key.clone(), pending.clone());
-                let this = self.clone();
-                let entry = pending.clone();
-                self.spawn_work(async move {
-                    let mut result = operation.await;
-                    if let Err(error) = &mut result {
-                        error.outcome = Some(
-                            if error.before_send {
-                                "not-dispatched"
-                            } else {
-                                "unknown"
-                            }
-                            .into(),
-                        );
-                    }
-                    if this.operations.finish(&owner, &key, &result).is_err() {
-                        let mut error = BridgeError::unavailable(
-                            "操作回执未能保存，请在桌面确认结果。不会重复执行。",
-                        );
-                        error.outcome = Some("unknown".into());
-                        result = Err(error);
-                    }
-                    entry.result.send_replace(Some(result));
-                    this.sends.lock().await.remove(&cache_key);
-                });
-                pending
-            }
-        };
-        let mut receiver = pending.result.subscribe();
-        loop {
-            if let Some(result) = receiver.borrow().clone() {
-                return result;
-            }
-            receiver.changed().await.map_err(|_| {
-                BridgeError::unavailable("等待操作结果的连接已关闭，请查看聊天确认。")
-            })?;
-        }
-    }
     async fn route(
         self: &Arc<Self>,
         request: Request<Body>,
@@ -393,7 +323,7 @@ impl Bridge {
         if !raw_path.starts_with("/api/") {
             return self.static_file(&method, &headers, raw_path).await;
         }
-        check_origin(&headers)?;
+        check_origin(&headers).map_err(BridgeError::before_send)?;
         let parts = raw_path
             .trim_start_matches('/')
             .split('/')
@@ -443,7 +373,12 @@ impl Bridge {
         }
         let (owner, expires) = match &phone {
             Some(phone) => (phone.owner().to_owned(), i64::MAX),
-            None => self.auth.lock().await.session(&headers)?,
+            None => self
+                .auth
+                .lock()
+                .await
+                .session(&headers)
+                .map_err(BridgeError::before_send)?,
         };
         let operation_owner = match &phone {
             Some(phone) => phone.owner().to_owned(),
@@ -451,10 +386,21 @@ impl Bridge {
         };
         if route == "operations" {
             if method == Method::GET {
-                return Ok(json_response(
-                    200,
-                    json!({"operations":self.operations.pending(&operation_owner)?}),
-                ));
+                let mut result =
+                    json!({"operations":self.submissions.operations.pending(&operation_owner)?});
+                if let Some(ids) = query.get("ids") {
+                    let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
+                    if ids.len() > 100
+                        || ids
+                            .iter()
+                            .any(|id| !crate::submissions::valid_request_id(id))
+                    {
+                        return Err(BridgeError::invalid("操作编号无效，单次最多查询 100 个。"));
+                    }
+                    result["results"] =
+                        json!(self.submissions.operations.lookup(&operation_owner, &ids)?);
+                }
+                return Ok(json_response(200, result));
             }
             if method == Method::POST && parts.len() == 3 {
                 if body(request).await?["confirm"] != "close-unknown" {
@@ -462,7 +408,9 @@ impl Bridge {
                         "请明确确认结束等待；此操作不会重新发送。",
                     ));
                 }
-                self.operations.close_unknown(&operation_owner, &parts[2])?;
+                self.submissions
+                    .operations
+                    .close_unknown(&operation_owner, &parts[2])?;
                 return Ok(json_response(200, json!({"closed":true})));
             }
             return Err(not_allowed());
@@ -665,15 +613,30 @@ impl Bridge {
             ));
         }
         if ["new-thread-settings", "context"].contains(&route) && method == Method::GET {
-            self.session.require("catalog")?;
+            let catalog = self.session.capabilities()["catalog"] == true;
+            self.session
+                .require(if route == "new-thread-settings" || catalog {
+                    "catalog"
+                } else {
+                    "contextReferences"
+                })?;
             let thread = query.get("threadId").filter(|s| !s.is_empty());
             let project = query.get("projectId").filter(|s| !s.is_empty());
             let cwd = if let Some(thread) = thread.filter(|_| route == "context") {
+                self.desktop.authorize(thread).await?;
                 self.desktop.metadata(thread).await?["cwd"]
                     .as_str()
                     .map(PathBuf::from)
             } else if let Some(project) = project {
-                let projects = self.desktop.projects().await?;
+                let projects = if catalog {
+                    self.desktop.projects().await?
+                } else {
+                    let source = query
+                        .get("sourceThreadId")
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| BridgeError::invalid("请先选择新建聊天的来源。"))?;
+                    self.desktop.scoped_projects(source).await?
+                };
                 Some(PathBuf::from(
                     projects
                         .iter()
@@ -689,6 +652,12 @@ impl Bridge {
                 200,
                 if route == "new-thread-settings" {
                     crate::config::new_thread_defaults(&self.paths.codex_home, cwd.as_deref())?
+                } else if !catalog {
+                    crate::context::references(
+                        cwd.as_deref(),
+                        query.get("query").map(String::as_str).unwrap_or(""),
+                    )
+                    .await
                 } else {
                     crate::context::read(
                         &self.desktop,
@@ -754,92 +723,10 @@ impl Bridge {
                 return Err(not_allowed());
             }
             self.session.require("create")?;
-            let input = body(request).await?;
-            let images = image_ids(input.get("images"))?;
-            if !images.is_empty() {
-                self.session.require("images")?;
-            }
-            if input.as_object().unwrap().keys().any(|key| {
-                ![
-                    "prompt",
-                    "requestId",
-                    "sourceThreadId",
-                    "projectId",
-                    "images",
-                    "title",
-                    "model",
-                    "thinking",
-                ]
-                .contains(&key.as_str())
-            }) {
-                return Err(BridgeError::invalid("新建请求包含不支持的参数。").before_send());
-            }
-            let (prompt, request_id) = message_fields(&input, &images)?;
-            let selection =
-                MessageModel::parse(&input, &self.session.model_efforts().unwrap_or_default())?;
-            if !selection.is_empty() {
-                self.session.require("modelSelection")?;
-            }
-            let title = input
-                .get("title")
-                .map(|value| {
-                    value
-                        .as_str()
-                        .map(str::trim)
-                        .filter(|title| !title.is_empty() && title.chars().count() <= 200)
-                        .map(str::to_owned)
-                        .ok_or_else(|| {
-                            BridgeError::invalid("聊天标题须为 1 到 200 字。").before_send()
-                        })
-                })
-                .transpose()?;
-            let source = input["sourceThreadId"]
-                .as_str()
-                .filter(|source| !source.is_empty())
-                .ok_or_else(|| BridgeError::invalid("请先明确选择来源聊天。").before_send())?
-                .to_owned();
-            let project = input["projectId"]
-                .as_str()
-                .filter(|project| !project.is_empty())
-                .ok_or_else(|| BridgeError::invalid("请先选择官方项目。").before_send())?
-                .to_owned();
-            self.desktop.authorize(&source).await?;
-            let target = format!("new:{project}");
-            let mut identity = json!([source, project, prompt, title]);
-            if !images.is_empty() || !selection.is_empty() {
-                identity
-                    .as_array_mut()
-                    .unwrap()
-                    .extend([json!(images), json!(selection)]);
-            }
-            let hash = crate::digest(identity.to_string());
-            let this = self.clone();
-            let result = self
-                .dedup(
-                    operation_owner,
-                    request_id.clone(),
-                    hash,
-                    target,
-                    "create",
-                    async move {
-                        let attachments = this.images.attachments(&images)?;
-                        let prompt = crate::images::context_prompt(&prompt, &attachments);
-                        this.desktop
-                            .create_chat(
-                                &source,
-                                &project,
-                                &prompt,
-                                &request_id,
-                                title.as_deref(),
-                                &selection,
-                            )
-                            .await
-                    },
-                )
-                .await?;
+            let input = body(request).await.map_err(BridgeError::before_send)?;
             return Ok(json_response(
                 200,
-                json!({"created":true,"threadId":result["threadId"],"firstTurnAccepted":result["firstTurnAccepted"]==true}),
+                self.submissions.create(operation_owner, input).await?,
             ));
         }
         if route != "threads" || parts.len() < 4 {
@@ -847,6 +734,14 @@ impl Bridge {
         }
         let id = &parts[2];
         let operation = parts[3].as_str();
+        if operation == "messages" && method == Method::POST {
+            self.session.require("send")?;
+            let input = body(request).await.map_err(BridgeError::before_send)?;
+            return Ok(json_response(
+                200,
+                self.submissions.send(operation_owner, id, input).await?,
+            ));
+        }
         let metadata = self.desktop.metadata(id).await?;
         if method != Method::GET && method != Method::HEAD {
             let capability = match operation {
@@ -857,17 +752,11 @@ impl Bridge {
                 "interrupt" => "interrupt",
                 "interactions" => "interactions",
                 "goal" => "goals",
-                "open" => "catalog",
+                "open" => "desktopNavigation",
                 _ => "unsupported",
             };
             self.session.require(capability)?;
             self.desktop.authorize(id).await?;
-            if operation == "messages" && self.operations.creation_pending(id, None)? {
-                return Err(BridgeError::unavailable(
-                    "新聊天首轮尚未确认，请等待桌面同步；不会重复创建。",
-                )
-                .before_send());
-            }
         }
         if operation == "interactions" && parts.len() == 5 {
             if method != Method::POST {
@@ -991,7 +880,8 @@ impl Bridge {
             )
             .before_send()),
             ("open", Method::POST) => {
-                self.desktop
+                let result = self
+                    .desktop
                     .tools_call(
                         "navigate_to_codex_page",
                         json!({"threadId":id}),
@@ -999,6 +889,11 @@ impl Bridge {
                         None,
                     )
                     .await?;
+                if result["navigated"] != true {
+                    return Err(BridgeError::unavailable(
+                        "官方桌面尚未确认打开此对话，请在电脑核对。",
+                    ));
+                }
                 Ok(json_response(200, json!({"ok":true})))
             }
             ("hooks", Method::GET) => Ok(json_response(
@@ -1066,72 +961,7 @@ impl Bridge {
                 )
                 .await
             }
-            ("messages", Method::POST) => {
-                let input = body(request).await?;
-                let images = image_ids(input.get("images"))?;
-                let (prompt, request_id) = message_fields(&input, &images)?;
-                let selection =
-                    MessageModel::parse(&input, &self.session.model_efforts().unwrap_or_default())?;
-                if !selection.is_empty() {
-                    self.session.require("modelSelection")?;
-                }
-                let mode = input.get("mode").cloned().unwrap_or(json!("now"));
-                if mode != "now" && mode != "queue" {
-                    return Err(BridgeError::invalid("请输入消息内容。"));
-                }
-                if mode == "queue" {
-                    self.session.require("queue")?;
-                    if !selection.is_empty() {
-                        return Err(
-                            BridgeError::invalid("队列暂不支持覆盖模型设置。").before_send()
-                        );
-                    }
-                }
-                if !images.is_empty() {
-                    self.session.require("images")?;
-                }
-                let mut identity = json!([id, prompt, mode, images]);
-                if !selection.is_empty() {
-                    identity.as_array_mut().unwrap().push(json!(selection));
-                }
-                let hash = crate::digest(identity.to_string());
-                let key = request_id.clone();
-                let this = self.clone();
-                let thread = id.to_string();
-                let queued = mode == "queue";
-                let result = self
-                    .dedup(
-                        operation_owner,
-                        key,
-                        hash,
-                        id.to_string(),
-                        "message",
-                        async move {
-                            let attachments = this.images.attachments(&images)?;
-                            if queued {
-                                this.desktop
-                                    .enqueue(&thread, &prompt, &request_id, &attachments)
-                                    .await
-                            } else {
-                                this.desktop
-                                    .send_message(
-                                        &thread,
-                                        &prompt,
-                                        &request_id,
-                                        &attachments,
-                                        &selection,
-                                    )
-                                    .await
-                            }
-                        },
-                    )
-                    .await?;
-                let queued = queued || result["status"] == "queued";
-                Ok(json_response(
-                    200,
-                    json!({"accepted":true,"queued":queued,"result":result}),
-                ))
-            }
+
             _ => Err(not_allowed()),
         }
     }
@@ -1149,7 +979,7 @@ impl Bridge {
         let observed = (snapshot["syncMode"] == "desktop-poll")
             .then(|| snapshot["firstTurnObserved"].as_str())
             .flatten();
-        match self.operations.creation_pending(id, observed) {
+        match self.submissions.operations.creation_pending(id, observed) {
             Ok(pending) => {
                 snapshot["firstTurnPending"] = json!(pending);
                 if pending {
@@ -1342,7 +1172,7 @@ impl Bridge {
                     previous=snapshot;continue;
                 }
                 let snapshot=this.enrich(&thread,view.snapshot.clone().unwrap_or_else(||history.clone()),&view).await;
-                if snapshot["capabilities"]!=previous["capabilities"] {
+                if snapshot["capabilities"]!=previous["capabilities"] || snapshot["firstTurnPending"]!=previous["firstTurnPending"] {
                     if sender.send(Ok(event("snapshot",&snapshot))).await.is_err(){break;}
                     previous=snapshot;continue;
                 }
@@ -1452,7 +1282,9 @@ impl Bridge {
         phone: Option<RelayPhone>,
     ) -> Response<Body> {
         if self.closing.load(Ordering::Acquire) {
-            return BridgeError::unavailable("连接服务正在重启，请稍后重试。").into_response();
+            return BridgeError::unavailable("连接服务正在重启，请稍后重试。")
+                .before_send()
+                .into_response();
         }
         let app = self.clone();
         match self
@@ -1489,14 +1321,14 @@ impl Server {
                 self.task.await
             }
         };
-        self.app.operations.interrupted()?;
+        self.app.submissions.operations.interrupted()?;
         self.app.desktop.close().await;
         self.app.goals.close().await;
         self.app.session.close().await;
         if let Some(usage) = self.app.usage.lock().await.as_ref() {
             usage.close().await;
         }
-        self.app.operations.release()?;
+        self.app.submissions.operations.release()?;
         served.map_err(|e| BridgeError::unavailable(e.to_string()))??;
         Ok(())
     }
@@ -1524,21 +1356,6 @@ async fn body(request: Request<Body>) -> Result<Value> {
 }
 fn not_allowed() -> BridgeError {
     BridgeError::new(405, "不支持这种操作。")
-}
-fn message_fields(input: &Value, images: &[String]) -> Result<(String, String)> {
-    let prompt = input["prompt"]
-        .as_str()
-        .filter(|s| !s.trim().is_empty() || !images.is_empty())
-        .ok_or_else(|| BridgeError::invalid("请输入消息内容。"))?;
-    let id = input["requestId"]
-        .as_str()
-        .filter(|s| {
-            (16..=100).contains(&s.len())
-                && s.bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-        })
-        .ok_or_else(|| BridgeError::invalid("发送编号无效，请刷新后重试。"))?;
-    Ok((prompt.into(), id.into()))
 }
 async fn file_response(
     path: &Path,

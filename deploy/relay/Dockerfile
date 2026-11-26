@@ -17,6 +17,16 @@ RUN npm run build:web
 FROM scratch AS frontend-export
 COPY --from=frontend /source/dist/ /dist/
 
+# 仅回归测试使用固定 Chromium，产品镜像不包含浏览器或测试依赖。
+FROM mcr.microsoft.com/playwright:v1.56.1-noble AS browser-check
+WORKDIR /source
+COPY --from=node-dependencies /usr/local/ /usr/local/
+COPY --from=node-dependencies /source/node_modules/ /source/node_modules/
+COPY --from=frontend /source/dist/mobile/ /source/dist/mobile/
+COPY --from=frontend /source/dist/desktop/ /source/dist/desktop/
+COPY tests/browser/ tests/browser/
+CMD ["node", "tests/browser/regression.mjs", "/results"]
+
 # 与 Cargo.toml 声明的 Rust 最低版本保持一致。
 FROM rust:1.90-bookworm AS rust-toolchain
 WORKDIR /source

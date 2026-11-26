@@ -1,13 +1,32 @@
-const cacheName = 'codex-mobile-shell-__BUILD_VERSION__';
+const buildVersion = '__BUILD_VERSION__';
+const cacheName = 'codex-mobile-shell-v2-' + buildVersion;
 const buildAssets = __BUILD_ASSETS__;
 const relayWeb = '__RELAY_WEB__' === 'true';
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     if (relayWeb && new URL(self.registration.scope).pathname !== '/') return self.skipWaiting();
     const cache = await caches.open(cacheName);
-    await cache.addAll(['/', '/startup.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest', ...buildAssets]);
-    await self.skipWaiting();
+    try {
+      await cache.addAll(['/', '/startup.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest', ...buildAssets]);
+      // 仅迁移旧布局：旧 Worker 只查自己的缓存；v2 已能跨缓存读取，不再互相复制。
+      const previousCaches = (await caches.keys()).filter((key) => key.startsWith('codex-mobile-shell-') && !key.startsWith('codex-mobile-shell-v2-'));
+      await Promise.all(previousCaches.map(async (key) => {
+        const previous = await caches.open(key);
+        for (const asset of buildAssets.filter((path) => path.startsWith('/assets/'))) {
+          await previous.put(asset, await cache.match(asset));
+        }
+      }));
+    } catch (cause) {
+      // 失败候选没有页面可用，只释放本次资源；旧页面仍使用原来的缓存。
+      await caches.delete(cacheName);
+      throw cause;
+    }
+    // 首次安装立即可用；升级等待旧页面退出，避免丢失草稿时抢占并清理其资源。
+    if (!self.registration.active) await self.skipWaiting();
   })());
+});
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'codex-mobile-build') event.ports[0]?.postMessage({ version: buildVersion });
 });
 self.addEventListener('activate', (event) => {
   if (relayWeb && new URL(self.registration.scope).pathname !== '/') return;
@@ -28,7 +47,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode !== 'navigate' && url.pathname.startsWith('/assets/')) {
     event.respondWith((async () => {
       const cache = await caches.open(cacheName);
-      const cached = await cache.match(event.request);
+      // 等待激活的版本也已预缓存，新页面可以离线读取相同 URL 的哈希资源。
+      const cached = await caches.match(event.request);
       if (cached) return cached;
       const response = await fetch(event.request);
       if (response.ok && !response.headers.get('content-type')?.includes('text/html')) {

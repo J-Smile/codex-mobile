@@ -121,6 +121,23 @@ impl Operations {
         let rows = statement.query_map([owner], |row| Ok(json!({"id":row.get::<_,String>(0)?,"kind":row.get::<_,String>(1)?,"target":row.get::<_,String>(2)?,"phase":row.get::<_,String>(3)?,"updatedAt":row.get::<_,i64>(4)?})))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
+    /// 仅按当前拥有者查询；没有记录不代表尚未投递。
+    pub fn lookup(&self, owner: &str, ids: &[String]) -> Result<Vec<Value>> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection.prepare("SELECT kind,target,phase,receipt,closed,updated FROM operations WHERE owner=? AND id=?")?;
+        ids.iter().map(|id| {
+            let row = statement.query_row(params![owner, id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, bool>(4)?, row.get::<_, i64>(5)?))
+            }).optional()?;
+            match row {
+                Some((kind, target, phase, receipt, closed, updated)) => {
+                    let receipt: Option<Value> = receipt.map(|value| serde_json::from_str(&value)).transpose()?;
+                    Ok(json!({"id":id,"kind":kind,"target":target,"phase":phase,"receipt":receipt,"closed":closed,"updatedAt":updated}))
+                }
+                None => Ok(json!({"id":id,"phase":"missing"})),
+            }
+        }).collect()
+    }
     /// 创建回执与官方观察到的首轮分开保存，读到空聊天不触发再次创建。
     pub fn creation_pending(&self, thread: &str, observed_turn: Option<&str>) -> Result<bool> {
         let mut connection = self.connection.lock().unwrap();

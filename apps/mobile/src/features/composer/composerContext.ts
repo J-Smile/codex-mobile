@@ -9,6 +9,7 @@ export interface ContextEntry {
 }
 
 export interface ContextCatalog {
+  mode?: 'references' | 'context';
   plugins: ContextEntry[];
   browserTabs: ContextEntry[];
   files: ContextEntry[];

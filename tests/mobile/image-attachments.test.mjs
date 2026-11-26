@@ -198,3 +198,116 @@ test('发送期间添加的新图片不会被清稿误删，不支持的类型�
   assert.equal(calls, 2);
   assert.match(attachments.error.value, /PNG/);
 });
+
+test('旧图片预览失败核对404后标记需重选，刷新保留失效项，其他草稿不受影响', async t => {
+  let mode = 'upload';
+  const calls = [];
+  const f = fixture(t, async (url, options) => {
+    calls.push({ url, method: options.method });
+    return mode === 'upload' ? Response.json(image()) : Response.json({ message: '附件不存在' }, { status: 404 });
+  });
+  await f.attachments.add([photo()]);
+  mode = 'missing';
+  await f.attachments.checkPreview(image().id);
+  assert.equal(f.attachments.hasErrors.value, true);
+  assert.equal(f.attachments.images.value[0].unavailable, true);
+  assert.deepEqual(f.attachments.readyImages(), []);
+  assert.equal(calls.at(-1).method, 'HEAD');
+  f.scope.stop();
+  const reopened = f.open().attachments;
+  assert.equal(reopened.images.value[0].unavailable, true);
+  assert.equal(reopened.hasErrors.value, true);
+  f.key.value = 'other';
+  assert.equal(reopened.hasErrors.value, false);
+  f.key.value = 'chat-a';
+  reopened.remove(image().id);
+  assert.equal(reopened.images.value.length, 0);
+});
+
+test('预览网络失败不误判文件失效，删除期间迟到404不复活草稿', async t => {
+  let mode = 'upload', finish;
+  const f = fixture(t, async () => {
+    if (mode === 'upload') return Response.json(image());
+    if (mode === 'offline') throw new Error('offline');
+    return new Promise(resolve => { finish = resolve; });
+  });
+  await f.attachments.add([photo()]);
+  mode = 'offline';
+  await f.attachments.checkPreview(image().id);
+  assert.equal(f.attachments.images.value[0].status, 'ready');
+  mode = 'deferred';
+  const pending = f.attachments.checkPreview(image().id);
+  f.attachments.remove(image().id);
+  finish(Response.json({ message: 'missing' }, { status: 404 }));
+  await pending;
+  assert.equal(f.attachments.images.value.length, 0);
+});
+
+test('跨聊天失败图片保留原File并阻止重载，重试成功后恢复全部上传引用', async t => {
+  let calls = 0;
+  let retryFile;
+  const f = fixture(t, async (_url, options) => {
+    calls++;
+    if (calls === 1) return Response.json({ message: '模拟上传失败' }, { status: 503 });
+    retryFile = options.body;
+    return Response.json(image());
+  });
+  const selected = photo();
+  await f.attachments.add([selected]);
+  const localId = f.attachments.images.value[0].id;
+  f.key.value = 'chat-b';
+  assert.equal(f.attachments.hasErrors.value, false);
+  assert.equal(f.attachments.hasPendingUploads.value, false);
+  assert.equal(f.attachments.canReload.value, false, '失败图的File仍属于另一聊天');
+  f.key.value = 'chat-a';
+  await f.attachments.retry(localId);
+  assert.equal(retryFile, selected, '重试使用未丢失的原File');
+  assert.equal(f.attachments.canReload.value, true);
+  assert.equal(f.attachments.saveDrafts(), true);
+  f.scope.stop();
+  assert.deepEqual(f.open().attachments.readyImages(), [image()]);
+  assert.equal(calls, 2);
+});
+
+test('全部聊天正在上传时保留页面，已持久化的失效引用允许重载且保留错误', async t => {
+  let complete;
+  const f = fixture(t, () => new Promise(resolve => { complete = resolve; }));
+  const pending = f.attachments.add([photo()]);
+  f.key.value = 'chat-b';
+  assert.equal(f.attachments.canReload.value, false);
+  complete(Response.json(image()));
+  await pending;
+  assert.equal(f.attachments.canReload.value, true);
+  f.key.value = 'chat-a';
+  globalThis.fetch = async () => Response.json({ message: '合成图片已失效' }, { status: 404 });
+  await f.attachments.checkPreview(image().id);
+  assert.equal(f.attachments.hasErrors.value, true);
+  assert.equal(f.attachments.canReload.value, true);
+  assert.equal(f.attachments.saveDrafts(), true);
+  f.scope.stop();
+  const reopened = f.open().attachments;
+  assert.equal(reopened.images.value[0].unavailable, true);
+  assert.equal(reopened.hasErrors.value, true);
+  assert.equal(reopened.canReload.value, true);
+});
+
+test('图片草稿存储失败不能确认可重载，恢复存储后同一序列化入口保留各聊天引用', async t => {
+  let count = 0;
+  const f = fixture(t, async () => Response.json(image(++count === 1 ? 'a' : 'b')));
+  const persist = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('合成存储配额不足'); };
+  await f.attachments.add([photo()]);
+  f.key.value = 'chat-b';
+  await f.attachments.add([photo()]);
+  assert.match(f.attachments.error.value, /保存图片草稿/);
+  assert.equal(f.attachments.saveDrafts(), false);
+  assert.deepEqual(f.attachments.readyImages(), [image('b')]);
+  assert.deepEqual(f.attachments.readyImages('chat-a'), [image('a')]);
+  localStorage.setItem = persist;
+  assert.equal(f.attachments.saveDrafts(), true);
+  assert.deepEqual(JSON.parse(f.saved.get('codex-mobile-image-drafts')), { 'chat-a': [image('a')], 'chat-b': [image('b')] });
+  f.scope.stop();
+  const reopened = f.open().attachments;
+  assert.deepEqual(reopened.readyImages(), [image('b')]);
+  assert.deepEqual(reopened.readyImages('chat-a'), [image('a')]);
+});

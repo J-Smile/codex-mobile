@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, reactive, ref, watch } from 'vue';
-import { request } from '../../api.ts';
+import { ApiError, request } from '../../api.ts';
 import { desktopStorageKey } from '../../transport.ts';
 
 export interface UploadedImage {
@@ -14,6 +14,7 @@ export interface DraftImage extends UploadedImage {
   status: 'uploading' | 'ready' | 'error';
   error?: string;
   previewUrl?: string;
+  unavailable?: boolean;
 }
 
 const storageKey = 'codex-mobile-image-drafts';
@@ -29,12 +30,17 @@ function readDrafts(): Record<string, DraftImage[]> {
       const images = value.filter((image): image is UploadedImage => image && typeof image.id === 'string'
         && /^[a-f0-9]{32}\.(png|jpg|webp|gif)$/.test(image.id) && image.url === '/api/images/' + image.id
         && typeof image.name === 'string' && typeof image.size === 'number' && supportedTypes.has(image.type));
-      return images.length ? [[key, images.map(({ id, name, url, size, type }) => ({ id, name, url, size, type, status: 'ready' as const }))]] : [];
+      return images.length ? [[key, images.map(image => {
+        const { id, name, url, size, type } = image;
+        const unavailable = (image as DraftImage).unavailable === true;
+        return { id, name, url, size, type, unavailable, status: unavailable ? 'error' as const : 'ready' as const };
+      })]] : [];
     }));
   } catch { return {}; }
 }
 
 export function useImageAttachments(options: { draftKey: () => string }) {
+  const scopedStorageKey = desktopStorageKey(storageKey);
   const drafts = reactive(readDrafts());
   const error = ref('');
   const controllers = new Map<string, AbortController>();
@@ -44,16 +50,19 @@ export function useImageAttachments(options: { draftKey: () => string }) {
   const uploading = computed(() => images.value.some(image => image.status === 'uploading'));
   const hasPendingUploads = computed(() => Object.values(drafts).some(values => values.some(image => image.status === 'uploading')));
   const hasErrors = computed(() => images.value.some(image => image.status === 'error'));
+  const canReload = computed(() => !hasPendingUploads.value
+    && !Object.values(drafts).some(values => values.some(image => image.status === 'error' && !image.unavailable)));
 
-  watch(drafts, () => {
+  function saveDrafts() {
     const saved = Object.fromEntries(Object.entries(drafts).flatMap(([key, values]) => {
-      const ready = values.filter(image => image.status === 'ready')
-        .map(({ id, name, url, size, type }) => ({ id, name, url, size, type }));
+      const ready = values.filter(image => image.status === 'ready' || image.unavailable)
+        .map(({ id, name, url, size, type, unavailable }) => ({ id, name, url, size, type, ...(unavailable ? { unavailable } : {}) }));
       return ready.length ? [[key, ready]] : [];
     }));
-    try { localStorage.setItem(desktopStorageKey(storageKey), JSON.stringify(saved)); }
-    catch { error.value = '图片已上传，但浏览器未能保存图片草稿。'; }
-  }, { deep: true, flush: 'sync' });
+    try { localStorage.setItem(scopedStorageKey, JSON.stringify(saved)); return true; }
+    catch { error.value = '图片已上传，但浏览器未能保存图片草稿。'; return false; }
+  }
+  watch(drafts, saveDrafts, { deep: true, flush: 'sync' });
 
   async function upload(key: string, entry: DraftImage, file: File) {
     if (disposed) return;
@@ -125,6 +134,23 @@ export function useImageAttachments(options: { draftKey: () => string }) {
     if (entry?.status === 'error' && file) await upload(key, entry, file);
   }
 
+  async function checkPreview(id: string, key = options.draftKey()) {
+    const entry = drafts[key]?.find(image => image.id === id);
+    if (disposed || !entry || entry.status !== 'ready' || controllers.has(id)) return;
+    const controller = new AbortController();
+    controllers.set(id, controller);
+    try {
+      await request(entry.url, { method: 'HEAD', signal: controller.signal }, async () => undefined);
+    } catch (failure) {
+      if (controller.signal.aborted || !drafts[key]?.includes(entry)) return;
+      if (failure instanceof ApiError && failure.status === 404) {
+        entry.unavailable = true;
+        entry.status = 'error';
+        entry.error = '电脑上的图片已失效，请移除后重新选择。';
+      }
+    } finally { if (controllers.get(id) === controller) controllers.delete(id); }
+  }
+
   function readyImages(key = options.draftKey()): UploadedImage[] {
     return (drafts[key] || []).filter(image => image.status === 'ready')
       .map(({ id, name, url, size, type }) => ({ id, name, url, size, type }));
@@ -138,5 +164,5 @@ export function useImageAttachments(options: { draftKey: () => string }) {
     files.clear();
   });
 
-  return { images, uploading, hasPendingUploads, hasErrors, error, add, remove, clear, clearAll, retry, readyImages };
+  return { images, uploading, hasPendingUploads, hasErrors, canReload, saveDrafts, error, add, remove, clear, clearAll, retry, readyImages, checkPreview };
 }

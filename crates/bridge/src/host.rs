@@ -290,22 +290,34 @@ impl Host {
             }
             *state = json!({"phase":"checking","message":"正在检查版本并准备更新…"});
         }
-        match self.updates.prepare(env!("CARGO_PKG_VERSION")).await {
+        match self
+            .updates
+            .prepare(env!("CARGO_PKG_VERSION"), |progress| async move {
+                *self.update_state.write().await = progress;
+            })
+            .await
+        {
             Ok(Some(candidate)) => {
-                let ready = json!({"phase":"ready","version":candidate.version,"message":"更新已下载并通过校验。"});
+                let version = candidate.version.clone();
                 *self.candidate.lock().await = Some(candidate);
-                *self.update_state.write().await = ready;
+                let mut state = self.update_state.write().await;
+                state["phase"] = json!("ready");
+                state["version"] = json!(version);
+                state["message"] = json!("更新已下载并通过校验。");
                 Ok(true)
             }
             Ok(None) => {
                 *self.candidate.lock().await = None;
-                *self.update_state.write().await =
-                    json!({"phase":"current","message":"当前已是最新正式版本。"});
+                let mut state = self.update_state.write().await;
+                state["phase"] = json!("current");
+                state["message"] = json!("当前已是最新正式版本。");
                 Ok(false)
             }
             Err(error) => {
                 *self.candidate.lock().await = None;
-                *self.update_state.write().await = json!({"phase":"error","message":error.message});
+                let mut state = self.update_state.write().await;
+                state["phase"] = json!("error");
+                state["message"] = json!(error.message);
                 Err(error)
             }
         }

@@ -167,9 +167,39 @@ pub(crate) fn model_efforts(catalog: &Value) -> Option<Vec<String>> {
     (!efforts.is_empty()).then_some(efforts)
 }
 
+pub(crate) fn navigation_supported(catalog: &Value) -> bool {
+    catalog["tools"].as_array().is_some_and(|tools| {
+        tools.iter().any(|tool| {
+            let schema = &tool["inputSchema"];
+            tool["namespace"] == "codex_app"
+                && tool["name"] == "navigate_to_codex_page"
+                && schema["type"] == "object"
+                && schema["additionalProperties"] == false
+                && schema["required"] == serde_json::json!(["threadId"])
+                && schema["properties"]["threadId"]["type"] == "string"
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn navigation_requires_its_own_confirmed_tool_contract() {
+        let mut catalog = serde_json::json!({"tools":[{
+            "namespace":"codex_app","name":"navigate_to_codex_page","inputSchema":{
+                "type":"object","additionalProperties":false,"required":["threadId"],
+                "properties":{"threadId":{"type":"string"}}
+            }
+        }]});
+        assert!(navigation_supported(&catalog));
+        catalog["tools"][0]["inputSchema"]["required"] = serde_json::json!(["threadId", "hostId"]);
+        assert!(!navigation_supported(&catalog));
+        catalog["tools"][0]["inputSchema"]["required"] = serde_json::json!(["threadId"]);
+        catalog["tools"][0]["namespace"] = serde_json::json!("other_app");
+        assert!(!navigation_supported(&catalog));
+        assert!(!navigation_supported(&serde_json::json!({"tools":[]})));
+    }
     #[test]
     fn message_models_require_both_tool_schemas_and_share_supported_efforts() {
         let tool = |name, efforts| {

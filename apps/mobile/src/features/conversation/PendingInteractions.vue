@@ -5,7 +5,7 @@ import { request, threadUrl } from '../../api';
 import CollapseMotion from '../../components/CollapseMotion.vue';
 import { InteractionReplyState, questionAnswers, type InteractionDraft, type PendingInteraction } from './interactions';
 
-const props = defineProps<{ threadId: string; interactions: PendingInteraction[]; disabled?: boolean; compact?: boolean; keyboardOpen?: boolean }>();
+const props = defineProps<{ threadId: string; interactions: PendingInteraction[]; disabled?: boolean; unavailableReason?: string; desktopSupported?: boolean; compact?: boolean; keyboardOpen?: boolean }>();
 const emit = defineEmits<{ desktop: []; expand: []; state: [value: { expanded: boolean; pending: boolean }] }>();
 const prefix = useId();
 const replies = reactive(new InteractionReplyState());
@@ -35,9 +35,9 @@ watch([answerInput, () => draft.value?.text[question.value?.id || '']], async ([
 const inactive = computed(() => props.disabled || !active.value || !!draft.value?.busy);
 const currentAnswered = computed(() => !!(entry.value && draft.value && question.value && questionAnswers(entry.value, draft.value)[question.value.id]?.length));
 const lastQuestion = computed(() => (draft.value?.step || 0) >= questions.value.length - 1);
-watch([active, minimized], () => {
+watch([active, minimized, () => props.disabled], () => {
   if (!active.value || minimized.value) replying.value = false;
-  emit('state', { pending: !!active.value, expanded: !!active.value && !minimized.value });
+  emit('state', { pending: !!active.value, expanded: !!active.value?.replySupported && !props.disabled && !minimized.value });
 }, { immediate: true });
 defineExpose({ minimize });
 
@@ -151,16 +151,20 @@ function advance() {
           <div class="interaction-scroll">
           <p v-if="entry.message" class="interaction-message">{{ entry.message }}</p>
           <pre v-if="entry.detail" class="interaction-detail">{{ entry.detail }}</pre>
+          <div v-for="item in questions" :key="item.id">
+            <p class="question-prompt">{{ item.question }}</p>
+            <ul v-if="item.options.length"><li v-for="(option, index) in item.options" :key="index">{{ option.label }}<span v-if="option.description">：{{ option.description }}</span></li></ul>
+          </div>
           <p class="muted small">{{ entry.desktopMessage || '请在电脑上的 Codex 继续。' }}</p>
           </div>
-          <div class="interaction-actions"><button type="button" class="interaction-desktop" @click="emit('desktop')">在电脑上打开<ArrowRight /></button></div>
+          <div v-if="desktopSupported" class="interaction-actions"><button type="button" class="interaction-desktop" @click="emit('desktop')">在电脑上打开<ArrowRight /></button></div>
         </template>
         <form v-else class="interaction-form" :class="{ 'question-form': entry.kind === 'questions' }" @submit.prevent="advance">
           <fieldset v-if="entry.kind === 'questions' && question" :key="question.id" :disabled="inactive" class="question-fieldset">
             <legend class="sr-only">{{ question.question }}</legend>
             <div ref="responseBody" class="question-scroll" tabindex="-1" role="group" :aria-label="question.question">
             <p v-if="draft.error" class="error-text" role="alert">{{ draft.error }}</p>
-            <p v-else-if="disabled" class="interaction-status" role="status">重新连接后即可回复。</p>
+            <p v-else-if="disabled" class="interaction-status" role="status">{{ unavailableReason || '连接恢复后可回复，已填写的答案会保留。' }}</p>
             <p v-if="entry.message" class="interaction-message">{{ entry.message }}</p>
             <pre v-if="entry.detail" class="interaction-detail">{{ entry.detail }}</pre>
             <p class="question-prompt" aria-hidden="true">{{ question.question }}</p>
@@ -188,7 +192,7 @@ function advance() {
           </fieldset>
           <div v-if="entry.kind !== 'questions'" ref="responseBody" class="interaction-scroll">
           <p v-if="draft.error" class="error-text" role="alert">{{ draft.error }}</p>
-          <p v-else-if="disabled" class="interaction-status" role="status">重新连接后即可回复。</p>
+          <p v-else-if="disabled" class="interaction-status" role="status">{{ unavailableReason || '连接恢复后可回复，已填写的答案会保留。' }}</p>
           <p v-if="entry.message" class="interaction-message">{{ entry.message }}</p>
           <pre v-if="entry.detail" class="interaction-detail">{{ entry.detail }}</pre>
           <template v-if="entry.kind === 'form'">
@@ -228,7 +232,7 @@ function advance() {
   .question-fieldset, .choice-check { animation: none; }
   .question-choice { transition: background-color .1s linear; }
 }
-.pending-interactions { width: 100%; max-width: 780px; max-height: min(440px, calc(var(--app-height, 100dvh) * .6)); min-height: 0; flex: 0 1 auto; margin: 0 auto; }
+.pending-interactions { width: 100%; max-width: 780px; max-height: min(440px, calc(var(--app-height, 100dvh) * .6)); min-height: 0; }
 .pending-interactions:not(.has-pending) { margin-bottom: 0; }
 .pending-interactions.keyboard-open.is-replying { max-height: none; }
 .pending-interactions :deep(.collapse-clip) { min-height: 0; }

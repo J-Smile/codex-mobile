@@ -203,3 +203,22 @@ test('回到已跳过题重新作答取消跳过，正常发送完整答案', as
   await f.app.submit();
   assert.deepEqual(JSON.parse(f.calls[0].body), { answers: { choice: ['直接发送'], details: ['保留既有行为'] } });
 });
+
+test('不可回复或断线卡片不占用普通输入，连接恢复仍保留答案', async t => {
+  const f = fixture(t, [question()]);
+  f.app.draft.value.text.details = '尚未提交';
+  f.props.disabled = true;
+  f.props.unavailableReason = '当前连接不支持在手机回复';
+  await settled();
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  await f.app.submit();
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.app.draft.value.text.details, '尚未提交');
+  f.props.disabled = false;
+  await settled();
+  assert.equal(f.events.at(-1)[1].expanded, true);
+  f.props.interactions = [question({ replySupported: false })];
+  await settled();
+  assert.equal(f.events.at(-1)[1].expanded, false);
+  assert.equal(f.app.draft.value.text.details, '尚未提交');
+});

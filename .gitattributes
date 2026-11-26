@@ -1,2 +1,4 @@
 *.command text eol=lf
 *.cmd text eol=crlf
+# 发布版 Worker 夹具按原始字节校验摘要，检出时不转换换行。
+tests/browser/fixtures/service-worker-v0.3.28-e8484f4.js -text

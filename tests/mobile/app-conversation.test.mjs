@@ -1,3 +1,4 @@
+import { submissionFixture, emptyOperations } from '../fixtures/submission.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,8 +12,8 @@ import { useVoiceInput } from '../../apps/mobile/src/features/composer/useVoiceI
 // 直接编译页面的相关脚本与切换监听，验证真实接线，不另写一份历史或发送实现。
 const source = readFileSync(new URL('../../apps/mobile/src/App.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0];
 const ast = ts.createSourceFile('App.ts', source, ts.ScriptTarget.Latest, true);
-const methods = new Set(['mergeTurns', 'cancelHistory', 'reconcilePending', 'applySnapshot', 'applyUpdate', 'loadOlder', 'activateConversation', 'openProjects', 'send', 'sendMessage', 'resumeTurn', 'scrollBottom', 'onScroll', 'canReloadApp']);
-const declarations = new Set(['turns', 'view', 'historyRequest', 'historyGap', 'restoringFrame', 'bottomScroll', 'bottomScrollKey', 'visibleConnectionError', 'projectError', 'visibleError', 'directSubagentInputError', 'subagentInputRejected', 'retryMessages', 'pendingSends', 'sending', 'draftKey', 'draft', 'hasMessage', 'active', 'resumableTurn', 'composerAction', 'conversationHistory', 'firstTurnPending', 'createdDraft']);
+const methods = new Set(['mergeTurns', 'cancelHistory', 'reconcilePending', 'applySnapshot', 'applyUpdate', 'loadOlder', 'activateConversation', 'openProjects', 'send', 'sendMessage', 'resumeTurn', 'scrollBottom', 'onScroll', 'canReloadApp', 'preserveBeforeReload', 'submissionReason']);
+const declarations = new Set(['turns', 'view', 'historyRequest', 'historyGap', 'restoringFrame', 'bottomScroll', 'bottomScrollKey', 'visibleConnectionError', 'projectError', 'visibleError', 'directSubagentInputError', 'subagentInputRejected', 'retryMessages', 'pendingSends', 'sending', 'draftKey', 'draft', 'hasMessage', 'active', 'resumableTurn', 'composerAction', 'conversationHistory', 'firstTurnPending', 'createdDraft', 'sendDisabledReason']);
 const selected = ast.statements.filter(node => {
   if (ts.isFunctionDeclaration(node)) return methods.has(node.name?.text);
   if (ts.isVariableStatement(node)) return node.declarationList.declarations.some(entry => declarations.has(entry.name.getText(ast)));
@@ -25,6 +26,7 @@ const compiled = ts.transpileModule(selected, { compilerOptions: { target: ts.Sc
 function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
   const queueSnapshots = [];
   const state = {
+    creationSource: ref('source'),
     capabilities: ref({ send: true, create: true, resume: true, interrupt: true, images: true }), operationsReady: ref(true), unresolvedOperations: ref([]),
     modelSelection: ref({}), modelDrafts: reactive({}),
     authenticated: ref(true), selectedId: ref('child'), selectedProjectId: ref('project'),
@@ -46,7 +48,7 @@ function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
     location: { origin: 'https://example.test' },
     messageQueue: { acceptSnapshot: (...args) => queueSnapshots.push(args) },
     notifications: { busy: ref(false) }, desktopUpgrade: { reconnecting: ref(false) }, attachments: {
-      hasPendingUploads: ref(false), readyImages: () => state.draftImages.value,
+      hasPendingUploads: ref(false), canReload: ref(true), saveDrafts: () => true, readyImages: () => state.draftImages.value,
       clear: (threadId, ids) => {
         if (threadId === state.selectedId.value) state.draftImages.value = state.draftImages.value.filter(image => !ids.includes(image.id));
       },
@@ -54,15 +56,19 @@ function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
     createChat: () => assert.fail('空输入不应创建对话'),
     useConversationHistory: options => options,
     updateThread: thread => { state.selectedThread.value = thread; },
+    saveDrafts: () => true, saveModelDrafts: () => true,
     updateAddress() {}, alignNavigation() {}, resizeComposer() {}, preloadMarkdownPreview: async () => {},
     clearConversation: () => { state.selectedId.value = ''; state.turns.value = []; },
   };
+  const submissions = submissionFixture(t, (call, init) => call.url.startsWith('/api/operations') ? emptyOperations(call.url) : request(call.url, init));
+  submissions.operationsReady.value = true;
+  Object.assign(bindings, { submissions, operationsReady: submissions.operationsReady, unresolvedOperations: submissions.unresolvedOperations });
   const scope = effectScope();
   const app = scope.run(() => new Function(...Object.keys(bindings), compiled
     + '\nreturn { ' + [...methods].join(', ') + ', turns, sending, pendingSends, draft, hasMessage, composerAction, resumableTurn, visibleError, projectError, subagentInputRejected, capture: conversationHistory.capture };')(...Object.values(bindings)));
   state.turns = app.turns;
   t.after(() => { app.cancelHistory(); scope.stop(); });
-  return { ...app, ...state, queueSnapshots };
+  return { ...app, ...state, queueSnapshots, attachments: bindings.attachments };
 }
 
 function turns(from, through, prefix = 'turn-') {
@@ -190,6 +196,22 @@ test('已完成、主动停止、运行中、旧轮次和断线状态不发起�
   assert.equal(app.composerAction.value.disabled, true);
   await app.resumeTurn('latest');
   await app.send();
+});
+
+test('未开放的异常继续入口保持禁用，输入新消息后仍能正常发送', async t => {
+  const calls = [];
+  const app = fixture(t, async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { accepted: true }; });
+  app.capabilities.value = { send: true, native: true, resume: false, images: true };
+  app.turns.value = [{ id: 'failed-turn', status: 'failed', items: [] }];
+  app.draft.value = '';
+  assert.equal(app.composerAction.value.disabled, true);
+  await app.send();
+  assert.equal(calls.length, 0);
+  app.draft.value = '新的明确消息';
+  assert.equal(app.composerAction.value.disabled, false);
+  await app.send();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.prompt, '新的明确消息');
 });
 
 test('异常任务有文字或图片时按原规则发送或排队，不触发空输入恢复', async t => {
@@ -472,6 +494,46 @@ test('带图发送等待只影响本聊天，清空草稿仍可停止，切换�
   assert.equal(posts.length, 2);
   assert.equal(app.sending.value, false);
   assert.equal(app.canReloadApp(), true);
+});
+
+test('只读问题可重载网页，可回复问题、打开面板和正在发送仍保留页面', t => {
+  const app = fixture(t, () => assert.fail('刷新判断不应发送请求'));
+  app.interactions.value = [{ id: 'read-only-question', replySupported: false }];
+  assert.equal(app.canReloadApp(), true);
+  app.interactions.value.push({ id: 'replyable-question', replySupported: true });
+  assert.equal(app.canReloadApp(), false);
+  app.capabilities.value.interactions = false;
+  app.streamStatus.value = 'disconnected';
+  assert.equal(app.canReloadApp(), false, '断线不丢弃可回复问题的答案草稿');
+  app.interactions.value.pop();
+  app.settingsOpen.value = true;
+  assert.equal(app.canReloadApp(), false);
+  app.settingsOpen.value = false;
+  app.pendingSends.add('another-chat');
+  assert.equal(app.canReloadApp(), false);
+  app.pendingSends.clear();
+  assert.equal(app.canReloadApp(), true);
+});
+
+test('网页重载使用全部图片草稿的可恢复性，已保存的失效引用不锁更新', t => {
+  const app = fixture(t, () => assert.fail('刷新判断不应发送请求'));
+  app.attachments.canReload.value = false;
+  assert.equal(app.canReloadApp(), false, '另一聊天尚有只保存在内存中的图片');
+  app.attachments.canReload.value = true;
+  app.imageErrors.value = true;
+  assert.equal(app.canReloadApp(), true, '已持久化失效引用可在刷新后恢复');
+});
+
+test('刷新前确认图片草稿保存成功，存储失败时保留文字与模型草稿', t => {
+  const app = fixture(t, () => assert.fail('保存草稿不应投递消息'));
+  app.modelDrafts.child = { model: 'fixture-model', thinking: 'high' };
+  let attempts = 0;
+  app.attachments.saveDrafts = () => ++attempts > 1;
+  assert.equal(app.preserveBeforeReload(), false);
+  assert.equal(app.draft.value, '未发送的草稿');
+  assert.deepEqual(app.modelDrafts.child, { model: 'fixture-model', thinking: 'high' });
+  assert.equal(app.preserveBeforeReload(), true);
+  assert.equal(attempts, 2);
 });
 
 test('离开底部即提供返回入口，阅读时保留位置，点击后立即恢复输出跟随', async t => {

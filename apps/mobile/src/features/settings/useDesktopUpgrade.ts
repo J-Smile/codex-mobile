@@ -10,12 +10,19 @@ export type DesktopUpdateSettings = {
   update?: {
     phase: 'idle' | 'queued' | 'checking' | 'current' | 'ready' | 'applying' | 'error';
     message: string;
+    stage?: 'checking' | 'downloading' | 'verifying' | 'extracting';
+    downloadedBytes?: number;
+    totalBytes?: number | null;
+    elapsedMs?: number;
+    stageElapsedMs?: number;
+    stageTimingsMs?: Record<string, number>;
   };
 };
 
 export function useDesktopUpgrade(finished: (result: { message: string; failed?: boolean; updated?: boolean }) => void) {
   const upgrading = ref(false);
   const reconnecting = ref(false);
+  const progress = ref<DesktopUpdateSettings['update']>();
   let controller: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -25,6 +32,7 @@ export function useDesktopUpgrade(finished: (result: { message: string; failed?:
     clearTimeout(timer);
     upgrading.value = false;
     reconnecting.value = false;
+    progress.value = undefined;
   }
 
   async function start(version: string) {
@@ -32,6 +40,7 @@ export function useDesktopUpgrade(finished: (result: { message: string; failed?:
     const pending = new AbortController();
     controller = pending;
     upgrading.value = true;
+    progress.value = { phase: 'queued', message: '正在请求电脑准备升级…' };
     let submissionUnconfirmed = false;
     try {
       await request('/api/update', { method: 'POST', signal: pending.signal, timeoutMs: 10_000 });
@@ -58,12 +67,13 @@ export function useDesktopUpgrade(finished: (result: { message: string; failed?:
           if (pending.signal.aborted) return;
           disconnectedAt = undefined;
           if (settings.version !== version) return finish(`已更新到 v${settings.version}。`, 'updated');
-          const progress = settings.update;
-          reconnecting.value = progress?.phase === 'applying';
-          switch (progress?.phase) {
+          progress.value = settings.update;
+          const state = settings.update;
+          reconnecting.value = state?.phase === 'applying';
+          switch (state?.phase) {
             case 'current': return finish('当前已是最新正式版本。', 'current');
-            case 'error': return finish(progress.message, 'failed');
-            case 'queued': case 'checking': case 'applying': break;
+            case 'error': return finish(state.message, 'failed');
+            case 'queued': case 'checking': case 'ready': case 'applying': break;
             default: return finish(submissionUnconfirmed ? '未能确认电脑已收到升级请求，请重试。' : '升级已中断，请重试。', 'failed');
           }
         } catch (failure) {
@@ -80,5 +90,5 @@ export function useDesktopUpgrade(finished: (result: { message: string; failed?:
   }
 
   onScopeDispose(stop);
-  return { upgrading, reconnecting, start, stop };
+  return { upgrading, reconnecting, progress, start, stop };
 }

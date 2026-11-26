@@ -261,6 +261,17 @@ async fn browser_tabs(desktop: &Arc<Desktop>, thread: Option<&str>, query: &str)
     }
     Ok(result)
 }
+// 普通引用只搜索本机项目，不调用插件或浏览器控制入口。
+pub async fn references(cwd: Option<&Path>, query: &str) -> Value {
+    let mut result = json!({"mode":"references","plugins":[],"browserTabs":[],"files":[]});
+    match files(cwd, query).await {
+        Ok(files) => result["files"] = json!(files),
+        Err(_) => {
+            result["fileMessage"] = json!("无法搜索这个项目的文件，请检查项目目录是否可访问。");
+        }
+    }
+    result
+}
 pub async fn read(
     desktop: &Arc<Desktop>,
     cwd: Option<&Path>,
@@ -269,22 +280,20 @@ pub async fn read(
 ) -> Value {
     let home = &desktop.paths.codex_home;
     let plugin_result = plugins(home, query);
-    let (file_result, browser_result) =
-        tokio::join!(files(cwd, query), browser_tabs(desktop, thread, query));
-    let mut result = browser_result
+    let (mut result, browser_result) =
+        tokio::join!(references(cwd, query), browser_tabs(desktop, thread, query));
+    let browser = browser_result
         .unwrap_or_else(|error| json!({"browserTabs":[],"browserMessage":format!("暂时无法读取此对话的浏览器标签页。{}",error.message)}));
+    result
+        .as_object_mut()
+        .unwrap()
+        .extend(browser.as_object().unwrap().clone());
+    result["mode"] = json!("context");
     match plugin_result {
         Ok(v) => result["plugins"] = json!(v),
         Err(_) => {
             result["plugins"] = json!([]);
             result["pluginMessage"] = json!("无法读取电脑上的插件配置，请稍后重试。");
-        }
-    }
-    match file_result {
-        Ok(v) => result["files"] = json!(v),
-        Err(_) => {
-            result["files"] = json!([]);
-            result["fileMessage"] = json!("无法搜索这个项目的文件，请检查项目目录是否可访问。");
         }
     }
     result

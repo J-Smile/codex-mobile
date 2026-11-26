@@ -8,18 +8,71 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    io::Write,
+    collections::BTreeMap,
+    future::Future,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
 #[cfg(windows)]
 mod windows;
 
 const WINDOWS_EXECUTABLE: &str = "Codex Mobile.exe";
-const REPOSITORY: &str = "J-Smile/codex-mobile";
 const RELEASE_URL: &str = "https://api.github.com/repos/J-Smile/codex-mobile/releases/latest";
+
+struct PreparationProgress {
+    started: Instant,
+    stage_started: Instant,
+    stage: &'static str,
+    downloaded: u64,
+    total: Option<u64>,
+    timings: BTreeMap<&'static str, u64>,
+}
+impl PreparationProgress {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            started: now,
+            stage_started: now,
+            stage: "checking",
+            downloaded: 0,
+            total: None,
+            timings: BTreeMap::new(),
+        }
+    }
+    fn start(&mut self, stage: &'static str) {
+        self.timings
+            .insert(self.stage, self.stage_started.elapsed().as_millis() as u64);
+        self.stage = stage;
+        self.stage_started = Instant::now();
+    }
+    fn snapshot(&self) -> Value {
+        let elapsed = self.stage_started.elapsed();
+        let label = match self.stage {
+            "downloading" => "正在下载安装包",
+            "verifying" => "正在校验安装包",
+            "extracting" => "正在解压并检查运行文件",
+            _ => "正在检查正式版本",
+        };
+        let bytes = if self.stage == "downloading" {
+            let downloaded = self.downloaded as f64 / 1_048_576.0;
+            match self.total {
+                Some(total) => format!(" · {downloaded:.1} / {:.1} MB", total as f64 / 1_048_576.0),
+                None => format!(" · 已下载 {downloaded:.1} MB"),
+            }
+        } else {
+            String::new()
+        };
+        let mut timings = self.timings.clone();
+        timings.insert(self.stage, elapsed.as_millis() as u64);
+        // phase 保持旧页面认识的 checking，具体阶段作为增量字段提供。
+        json!({"phase":"checking","stage":self.stage,"message":format!("{label}{bytes}"),
+            "downloadedBytes":self.downloaded,"totalBytes":self.total,"elapsedMs":self.started.elapsed().as_millis() as u64,
+            "stageElapsedMs":elapsed.as_millis() as u64,"stageTimingsMs":timings})
+    }
+}
 pub struct Updates {
     directory: PathBuf,
     pub packaged: bool,
@@ -173,158 +226,231 @@ impl Updates {
         }
         self.status()
     }
-    pub async fn prepare(&self, current: &str) -> Result<Option<Candidate>> {
-        if !self.packaged {
-            return Err(BridgeError::invalid(
-                "源码运行不安装发布更新，请使用桌面安装包。",
-            ));
-        }
-        let (mut token, _) = self.token()?;
-        let response = self
-            .get(RELEASE_URL, &mut token, false, Duration::from_secs(15))
-            .await?;
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(BridgeError::unavailable(
-                "尚无可读取的正式版本，请等待发布后重试。",
-            ));
-        }
-        if matches!(response.status().as_u16(), 403 | 429) {
-            return Err(BridgeError::unavailable(
-                "GitHub 暂时限制了更新请求，请稍后重试，或在更新来源配置可选 token。",
-            ));
-        }
-        if !response.status().is_success() {
-            return Err(BridgeError::unavailable(format!(
-                "检查公开仓库版本失败（HTTP {}）。",
-                response.status().as_u16()
-            )));
-        }
-        let release: Value = response.json().await?;
-        let version = release["tag_name"]
-            .as_str()
-            .unwrap_or("")
-            .trim_start_matches('v');
-        let candidate = semver::Version::parse(version)
-            .map_err(|_| BridgeError::unavailable("正式版本编号无效。"))?;
-        let current = semver::Version::parse(current)
-            .map_err(|_| BridgeError::unavailable("当前版本编号无效。"))?;
-        if release["draft"] == true || release["prerelease"] == true || !candidate.pre.is_empty() {
-            return Ok(None);
-        }
-        *self.release.write().await = Some(ReleasePreview {
-            version: version.into(),
-            notes: release["body"].as_str().unwrap_or("").into(),
-            published_at: release["published_at"].as_str().map(String::from),
-        });
-        if candidate <= current {
-            return Ok(None);
-        }
-        if installed(&self.directory)?
-            .is_some_and(|state| state.failed_version.as_deref() == Some(version))
-        {
-            return Err(BridgeError::unavailable(format!(
-                "版本 {version} 上次启动失败，已保留当前版本；等待后续正式版本。"
-            )));
-        }
-        let name = release_name(version);
-        let archive_name = format!("{name}.zip");
-        let asset = |name: &str| -> Result<String> {
-            let a = release["assets"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|a| a["name"] == name)
-                .ok_or_else(|| BridgeError::unavailable(format!("正式版本缺少更新文件：{name}")))?;
-            let id = a["id"]
-                .as_u64()
-                .filter(|id| *id > 0)
-                .ok_or_else(|| BridgeError::unavailable("更新文件编号无效。"))?;
-            let url = format!("https://api.github.com/repos/{REPOSITORY}/releases/assets/{id}");
-            if a["url"] != url {
-                return Err(BridgeError::unavailable("更新文件地址无效。"));
+    pub async fn prepare<F, R>(&self, current: &str, report: F) -> Result<Option<Candidate>>
+    where
+        F: FnMut(Value) -> R,
+        R: Future<Output = ()>,
+    {
+        self.prepare_from(current, RELEASE_URL, report).await
+    }
+    async fn prepare_from<F, R>(
+        &self,
+        current: &str,
+        release_url: &str,
+        mut report: F,
+    ) -> Result<Option<Candidate>>
+    where
+        F: FnMut(Value) -> R,
+        R: Future<Output = ()>,
+    {
+        let mut progress = PreparationProgress::new();
+        report(progress.snapshot()).await;
+        let result = async {
+            if !self.packaged {
+                return Err(BridgeError::invalid(
+                    "源码运行不安装发布更新，请使用桌面安装包。",
+                ));
             }
-            Ok(url)
-        };
-        let archive_url = asset(&archive_name)?;
-        let checksum_url = asset(&format!("{archive_name}.sha256"))?;
-        let checksum = self
-            .get(&checksum_url, &mut token, true, Duration::from_secs(15))
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
-        let pieces = checksum.split_whitespace().collect::<Vec<_>>();
-        if pieces.len() != 2
-            || pieces[1] != archive_name
-            || pieces[0].len() != 64
-            || !pieces[0].bytes().all(|b| b.is_ascii_hexdigit())
-        {
-            return Err(BridgeError::unavailable("更新校验文件格式不正确。"));
-        }
-        let versions = self.directory.join("updates/native");
-        std::fs::create_dir_all(&versions)?;
-        let target = versions.join(&name);
-        if target.exists() {
-            return read_candidate(&target, version).map(Some);
-        }
-        let temporary = versions.join(format!(".download-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir(&temporary)?;
-        let archive = temporary.join(&archive_name);
-        let response = self
-            .get(&archive_url, &mut token, true, Duration::from_secs(300))
-            .await?
-            .error_for_status()?;
-        let mut stream = response.bytes_stream();
-        let mut file = std::fs::File::create(&archive)?;
-        let mut hash = Sha256::new();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            hash.update(&chunk);
-            file.write_all(&chunk)?;
-        }
-        file.sync_all()?;
-        drop(file);
-        if hex::encode(hash.finalize()) != pieces[0].to_lowercase() {
-            return Err(BridgeError::unavailable("更新包 SHA256 校验失败。"));
-        }
-        let unpacked = temporary.join("unpacked");
-        std::fs::create_dir(&unpacked)?;
-        let archive_file = std::fs::File::open(&archive)?;
-        let mut zip = zip::ZipArchive::new(archive_file)
-            .map_err(|_| BridgeError::unavailable("更新压缩包格式无效。"))?;
-        for index in 0..zip.len() {
-            let mut entry = zip
-                .by_index(index)
-                .map_err(|_| BridgeError::unavailable("无法读取更新压缩包。"))?;
-            let relative = entry
-                .enclosed_name()
-                .ok_or_else(|| BridgeError::unavailable("更新包包含越界路径。"))?;
-            if entry
-                .unix_mode()
-                .is_some_and(|mode| mode & 0o170000 == 0o120000)
+            let (mut token, _) = self.token()?;
+            let response = self
+                .get(release_url, &mut token, false, Duration::from_secs(15))
+                .await?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err(BridgeError::unavailable(
+                    "尚无可读取的正式版本，请等待发布后重试。",
+                ));
+            }
+            if matches!(response.status().as_u16(), 403 | 429) {
+                return Err(BridgeError::unavailable(
+                    "GitHub 暂时限制了更新请求，请稍后重试，或在更新来源配置可选 token。",
+                ));
+            }
+            if !response.status().is_success() {
+                return Err(BridgeError::unavailable(format!(
+                    "检查公开仓库版本失败（HTTP {}）。",
+                    response.status().as_u16()
+                )));
+            }
+            let release: Value = response.json().await?;
+            let version = release["tag_name"]
+                .as_str()
+                .unwrap_or("")
+                .trim_start_matches('v');
+            let candidate = semver::Version::parse(version)
+                .map_err(|_| BridgeError::unavailable("正式版本编号无效。"))?;
+            let current = semver::Version::parse(current)
+                .map_err(|_| BridgeError::unavailable("当前版本编号无效。"))?;
+            if release["draft"] == true
+                || release["prerelease"] == true
+                || !candidate.pre.is_empty()
             {
-                return Err(BridgeError::unavailable("更新包不能包含符号链接。"));
+                return Ok(None);
             }
-            let path = unpacked.join(relative);
-            if entry.is_dir() {
-                std::fs::create_dir_all(&path)?;
-            } else {
-                std::fs::create_dir_all(path.parent().unwrap())?;
-                let mut output = std::fs::File::create(&path)?;
-                std::io::copy(&mut entry, &mut output)?;
-                #[cfg(unix)]
-                if let Some(mode) = entry.unix_mode() {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))?;
+            *self.release.write().await = Some(ReleasePreview {
+                version: version.into(),
+                notes: release["body"].as_str().unwrap_or("").into(),
+                published_at: release["published_at"].as_str().map(String::from),
+            });
+            if candidate <= current {
+                return Ok(None);
+            }
+            if installed(&self.directory)?
+                .is_some_and(|state| state.failed_version.as_deref() == Some(version))
+            {
+                return Err(BridgeError::unavailable(format!(
+                    "版本 {version} 上次启动失败，已保留当前版本；等待后续正式版本。"
+                )));
+            }
+            let name = release_name(version);
+            let archive_name = format!("{name}.zip");
+            let asset = |name: &str| -> Result<String> {
+                let a = release["assets"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|a| a["name"] == name)
+                    .ok_or_else(|| {
+                        BridgeError::unavailable(format!("正式版本缺少更新文件：{name}"))
+                    })?;
+                let id = a["id"]
+                    .as_u64()
+                    .filter(|id| *id > 0)
+                    .ok_or_else(|| BridgeError::unavailable("更新文件编号无效。"))?;
+                let releases = release_url
+                    .strip_suffix("/latest")
+                    .ok_or_else(|| BridgeError::unavailable("更新来源地址无效。"))?;
+                let url = format!("{releases}/assets/{id}");
+                if a["url"] != url {
+                    return Err(BridgeError::unavailable("更新文件地址无效。"));
+                }
+                Ok(url)
+            };
+            let archive_url = asset(&archive_name)?;
+            let checksum_url = asset(&format!("{archive_name}.sha256"))?;
+            let checksum = self
+                .get(&checksum_url, &mut token, true, Duration::from_secs(15))
+                .await?
+                .error_for_status()?
+                .text()
+                .await?;
+            let pieces = checksum.split_whitespace().collect::<Vec<_>>();
+            if pieces.len() != 2
+                || pieces[1] != archive_name
+                || pieces[0].len() != 64
+                || !pieces[0].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err(BridgeError::unavailable("更新校验文件格式不正确。"));
+            }
+            let versions = self.directory.join("updates/native");
+            tokio::fs::create_dir_all(&versions).await?;
+            let target = versions.join(&name);
+            if target.exists() {
+                progress.start("verifying");
+                report(progress.snapshot()).await;
+                let version = version.to_owned();
+                return tokio::task::spawn_blocking(move || {
+                    read_candidate(&target, &version).map(Some)
+                })
+                .await
+                .map_err(|error| BridgeError::unavailable(error.to_string()))?;
+            }
+            let temporary = versions.join(format!(".download-{}", uuid::Uuid::new_v4()));
+            tokio::fs::create_dir(&temporary).await?;
+            let cleanup = temporary.clone();
+            let result = async {
+                let archive = temporary.join(&archive_name);
+                progress.start("downloading");
+                report(progress.snapshot()).await;
+                let response = self
+                    .get(&archive_url, &mut token, true, Duration::from_secs(300))
+                    .await?
+                    .error_for_status()?;
+                progress.total = response.content_length().filter(|total| *total > 0);
+                report(progress.snapshot()).await;
+                let mut stream = response.bytes_stream();
+                let mut file = tokio::fs::File::create(&archive).await?;
+                let mut hash = Sha256::new();
+                let mut reported = Instant::now();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    hash.update(&chunk);
+                    file.write_all(&chunk).await?;
+                    progress.downloaded += chunk.len() as u64;
+                    if reported.elapsed() >= Duration::from_millis(200) {
+                        report(progress.snapshot()).await;
+                        reported = Instant::now();
+                    }
+                }
+                file.flush().await?;
+                file.sync_all().await?;
+                drop(file);
+                report(progress.snapshot()).await;
+                progress.start("verifying");
+                report(progress.snapshot()).await;
+                if hex::encode(hash.finalize()) != pieces[0].to_lowercase() {
+                    return Err(BridgeError::unavailable("更新包 SHA256 校验失败。"));
+                }
+                progress.start("extracting");
+                report(progress.snapshot()).await;
+                let version = version.to_owned();
+                tokio::task::spawn_blocking(move || {
+                    let unpacked = temporary.join("unpacked");
+                    std::fs::create_dir(&unpacked)?;
+                    let archive_file = std::fs::File::open(&archive)?;
+                    let mut zip = zip::ZipArchive::new(archive_file)
+                        .map_err(|_| BridgeError::unavailable("更新压缩包格式无效。"))?;
+                    for index in 0..zip.len() {
+                        let mut entry = zip
+                            .by_index(index)
+                            .map_err(|_| BridgeError::unavailable("无法读取更新压缩包。"))?;
+                        let relative = entry
+                            .enclosed_name()
+                            .ok_or_else(|| BridgeError::unavailable("更新包包含越界路径。"))?;
+                        if entry
+                            .unix_mode()
+                            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+                        {
+                            return Err(BridgeError::unavailable("更新包不能包含符号链接。"));
+                        }
+                        let path = unpacked.join(relative);
+                        if entry.is_dir() {
+                            std::fs::create_dir_all(&path)?;
+                        } else {
+                            std::fs::create_dir_all(path.parent().unwrap())?;
+                            let mut output = std::fs::File::create(&path)?;
+                            std::io::copy(&mut entry, &mut output)?;
+                            #[cfg(unix)]
+                            if let Some(mode) = entry.unix_mode() {
+                                use std::os::unix::fs::PermissionsExt;
+                                std::fs::set_permissions(
+                                    &path,
+                                    std::fs::Permissions::from_mode(mode),
+                                )?;
+                            }
+                        }
+                    }
+                    let candidate = unpacked.join(&name);
+                    read_candidate(&candidate, &version)?;
+                    std::fs::rename(candidate, &target)?;
+                    // 只清理由本轮在更新目录内创建的临时路径。
+                    std::fs::remove_dir_all(&temporary)?;
+                    read_candidate(&target, &version).map(Some)
+                })
+                .await
+                .map_err(|error| BridgeError::unavailable(error.to_string()))?
+            }
+            .await;
+            if result.is_err() {
+                // 下载失败也释放本轮临时包，保留最初失败原因供用户重试。
+                if let Err(error) = tokio::fs::remove_dir_all(cleanup).await {
+                    tracing::warn!("无法清理本轮更新临时文件：{error}");
                 }
             }
+            result
         }
-        let candidate = unpacked.join(&name);
-        read_candidate(&candidate, version)?;
-        std::fs::rename(candidate, &target)?;
-        // The temporary path was created directly under this updater's own directory.
-        std::fs::remove_dir_all(&temporary)?;
-        read_candidate(&target, version).map(Some)
+        .await;
+        report(progress.snapshot()).await;
+        result
     }
 }
 
@@ -698,6 +824,221 @@ mod tests {
         Router,
     };
     use std::sync::{Arc, Mutex};
+
+    fn update_archive(version: &str, unsafe_entry: bool) -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        let name = release_name(version);
+        let resources = if cfg!(target_os = "macos") {
+            "Codex Mobile.app/Contents/Resources/"
+        } else {
+            ""
+        };
+        let executable = if cfg!(windows) {
+            WINDOWS_EXECUTABLE
+        } else if cfg!(target_os = "macos") {
+            "Codex Mobile.app/Contents/MacOS/codex-mobile-desktop"
+        } else {
+            "codex-mobile-desktop"
+        };
+        let platform = if cfg!(windows) {
+            "win32"
+        } else if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "x64"
+        };
+        let metadata = json!({"backend":"rust","version":version,"platform":platform,"arch":arch,"runtimeBoundary":2}).to_string();
+        let mut files = vec![
+            (format!("{name}/release.json"), metadata.clone()),
+            (
+                format!("{name}/{executable}"),
+                "synthetic executable".into(),
+            ),
+            (
+                format!("{name}/{resources}mobile/index.html"),
+                "synthetic page".into(),
+            ),
+        ];
+        if !resources.is_empty() {
+            files.push((format!("{name}/{resources}release.json"), metadata));
+        }
+        for component in ["codex-mobile-proxy", "codex-mobile-updater"] {
+            files.push((
+                format!(
+                    "{name}/{resources}bin/{component}{}",
+                    if cfg!(windows) { ".exe" } else { "" }
+                ),
+                "synthetic component".into(),
+            ));
+        }
+        if unsafe_entry {
+            files.push(("../outside.txt".into(), "must not escape".into()));
+        }
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in files {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(content.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    async fn simulated_release(
+        archive: Vec<u8>,
+        known_length: bool,
+        valid_hash: bool,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        use axum::{body::Body, response::Response, Json};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let url = format!("{origin}/releases/latest");
+        let archive_name = format!("{}.zip", release_name("9.9.9"));
+        let hash = if valid_hash {
+            hex::encode(Sha256::digest(&archive))
+        } else {
+            "0".repeat(64)
+        };
+        let checksum = format!("{hash} {archive_name}");
+        let release = json!({"tag_name":"v9.9.9","draft":false,"prerelease":false,"assets":[
+            {"id":1,"name":archive_name,"url":format!("{origin}/releases/assets/1")},
+            {"id":2,"name":format!("{archive_name}.sha256"),"url":format!("{origin}/releases/assets/2")}
+        ]});
+        let app = Router::new()
+            .route(
+                "/releases/latest",
+                get(move || {
+                    let release = release.clone();
+                    async move { Json(release) }
+                }),
+            )
+            .route(
+                "/releases/assets/2",
+                get(move || {
+                    let checksum = checksum.clone();
+                    async move { checksum }
+                }),
+            )
+            .route(
+                "/releases/assets/1",
+                get(move || {
+                    let bytes = archive.clone();
+                    async move {
+                        if known_length {
+                            Response::new(Body::from(bytes))
+                        } else {
+                            let chunks = bytes
+                                .chunks(256)
+                                .map(|chunk| {
+                                    Ok::<_, std::io::Error>(bytes::Bytes::copy_from_slice(chunk))
+                                })
+                                .collect::<Vec<_>>();
+                            Response::new(Body::from_stream(futures_util::stream::iter(chunks)))
+                        }
+                    }
+                }),
+            );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn simulated_prepare_reports_real_stages_and_bytes_without_changing_legacy_phase() {
+        for known_length in [true, false] {
+            let archive = update_archive("9.9.9", false);
+            let size = archive.len() as u64;
+            let (url, server) = simulated_release(archive, known_length, true).await;
+            let directory = tempfile::tempdir().unwrap();
+            let updates = Updates::new(directory.path().into(), true).unwrap();
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            let received = observed.clone();
+            let candidate = updates
+                .prepare_from("0.3.28", &url, move |progress| {
+                    let received = received.clone();
+                    async move {
+                        received.lock().unwrap().push(progress);
+                    }
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(candidate.version, "9.9.9");
+            assert!(candidate.executable.is_file());
+            let snapshots = observed.lock().unwrap();
+            assert!(snapshots.iter().all(|state| state["phase"] == "checking"));
+            let mut stages = snapshots
+                .iter()
+                .map(|state| state["stage"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            stages.dedup();
+            assert_eq!(
+                stages,
+                ["checking", "downloading", "verifying", "extracting"]
+            );
+            let last = snapshots.last().unwrap();
+            assert_eq!(last["downloadedBytes"], size);
+            assert_eq!(
+                last["totalBytes"],
+                if known_length {
+                    json!(size)
+                } else {
+                    Value::Null
+                }
+            );
+            assert!(last.get("percent").is_none());
+            for stage in stages {
+                assert!(last["stageTimingsMs"][stage].is_u64());
+            }
+            assert!(snapshots
+                .windows(2)
+                .all(|pair| pair[1]["elapsedMs"].as_u64() >= pair[0]["elapsedMs"].as_u64()));
+            assert!(!std::fs::read_dir(directory.path().join("updates/native"))
+                .unwrap()
+                .any(|entry| entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".download-")));
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn simulated_prepare_never_exposes_invalid_or_escaping_packages_and_cleans_temporary_files(
+    ) {
+        for (valid_hash, unsafe_entry, expected) in
+            [(false, false, "SHA256"), (true, true, "越界路径")]
+        {
+            let (url, server) =
+                simulated_release(update_archive("9.9.9", unsafe_entry), true, valid_hash).await;
+            let directory = tempfile::tempdir().unwrap();
+            let updates = Updates::new(directory.path().into(), true).unwrap();
+            let error = updates
+                .prepare_from("0.3.28", &url, |_| async {})
+                .await
+                .unwrap_err();
+            assert!(error.message.contains(expected), "{}", error.message);
+            assert!(!directory
+                .path()
+                .join("updates/native")
+                .join(release_name("9.9.9"))
+                .exists());
+            assert_eq!(
+                std::fs::read_dir(directory.path().join("updates/native"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            assert!(!directory.path().join("updates/native/outside.txt").exists());
+            server.abort();
+        }
+    }
 
     #[tokio::test]
     async fn public_updates_use_anonymous_requests_and_fall_back_once_for_rejected_credentials() {
