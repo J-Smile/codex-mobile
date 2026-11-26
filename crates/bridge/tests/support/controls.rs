@@ -277,6 +277,76 @@ async fn controls_preserve_request_identity_and_queue_atomically_with_attachment
 }
 
 #[tokio::test]
+async fn reply_rejoins_follow_while_idle_unsubscribe_is_in_flight() {
+    let f = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&f).await;
+    let desktop = desktop(&f).await;
+    let id = create(&desktop, &f, &mock).await;
+    let initial = desktop.subscribe(&id);
+    desktop.snapshot(&id).await.unwrap();
+    mock.server_request(json!({"id":"idle-question","method":"item/tool/requestUserInput",
+        "params":{"threadId":id,"turnId":"synthetic-turn","questions":[{"id":"color","question":"选择颜色"}]}})).await;
+    let snapshot = snapshot_matching(&desktop, &id, |snapshot| {
+        !snapshot["interactions"].as_array().unwrap().is_empty()
+    })
+    .await;
+    let key = snapshot["interactions"][0]["id"].as_str().unwrap();
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    *mock.unsubscribe_gate.lock().await = Some(gate.clone());
+    drop(initial);
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while mock.count("thread/unsubscribe").await == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // 退出回执尚未返回时重新打开聊天，不能绑定已决定退出的旧跟随。
+    let reopened = desktop.subscribe(&id);
+    gate.add_permits(1);
+    let reply = tokio::time::timeout(
+        Duration::from_secs(4),
+        desktop.reply(&id, key, &json!({"answers":{"color":["蓝"]}})),
+    )
+    .await
+    .expect("重新订阅必须恢复状态跟随并确认原请求结束")
+    .unwrap();
+    assert_eq!(reply["resolved"], true);
+    assert_eq!(mock.count("thread/resume").await, 2);
+    assert_eq!(mock.count("thread/start").await, 1);
+    assert_eq!(mock.count("thread/unsubscribe").await, 1);
+    assert!(
+        desktop
+            .reply(&id, key, &json!({"answers":{"color":["蓝"]}}))
+            .await
+            .unwrap_err()
+            .before_send
+    );
+    assert_eq!(
+        mock.calls
+            .lock()
+            .await
+            .iter()
+            .filter(|call| { call["id"] == "idle-question" && call.get("method").is_none() })
+            .count(),
+        1
+    );
+    *mock.unsubscribe_gate.lock().await = None;
+    drop(reopened);
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while mock.count("thread/unsubscribe").await < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(mock.count("thread/resume").await, 2);
+    assert_eq!(mock.count("turn/interrupt").await, 0);
+    desktop.close().await;
+    desktop.session.close().await;
+}
+
+#[tokio::test]
 async fn reconnect_revokes_old_request_keys_without_submitting_to_a_new_generation() {
     let f = Fixture::new();
     let mock = MockDesktop::start_control_fixture(&f).await;

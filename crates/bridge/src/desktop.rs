@@ -579,17 +579,14 @@ impl Desktop {
                     )
                     .await?;
                 self.hydrate_project_assignment(&id).await?;
-                follow
-                    .state
-                    .write()
-                    .await
-                    .hydrate(&resume, &connection.id, sequence)?;
-                for request in connection.pending_requests(&id) {
-                    follow
-                        .state
-                        .write()
-                        .await
-                        .server_request(&connection.id, request);
+                {
+                    let mut state = follow.state.write().await;
+                    state.hydrate(&resume, &connection.id, sequence)?;
+                    // 重入也以当前连接的待处理请求为准，不保留退出期间已结束的卡片。
+                    state.requests.clear();
+                    for request in connection.pending_requests(&id) {
+                        state.server_request(&connection.id, request);
+                    }
                 }
                 *follow.connection.write().await = Some(connection.clone());
                 follow.updates.send_modify(|view| {
@@ -602,12 +599,18 @@ impl Desktop {
                 }
                 let mut flush = tokio::time::interval(Duration::from_millis(40));
                 let mut idle = tokio::time::interval(Duration::from_secs(1));
+                idle.tick().await;
                 let mut dirty = false;
                 let mut queue_dirty = false;
                 loop {
                     tokio::select! {
                         _=idle.tick()=>{
-                            if follow.updates.receiver_count()==0 && Arc::strong_count(&follow)<=2 {
+                            // 先撤销可用连接，再等待退订；重入者等待下一次同步，不能复用退出中的连接。
+                            let mut current = follow.connection.write().await;
+                            let unused = follow.updates.receiver_count()==0 && Arc::strong_count(&follow)<=2;
+                            if unused { *current = None; }
+                            drop(current);
+                            if unused {
                                 connection.request("thread/unsubscribe",json!({"threadId":id}),Duration::from_secs(5)).await?;
                                 return Ok(());
                             }
@@ -641,7 +644,21 @@ impl Desktop {
             let attempt =
                 tokio::select! { _=self.cancel.cancelled()=>Ok(()), result=attempt=>result };
             *follow.connection.write().await = None;
-            if self.cancel.is_cancelled() || attempt.is_ok() {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            if attempt.is_ok() {
+                let mut follows = self.follows.lock().unwrap();
+                if follows
+                    .get(&id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &follow))
+                {
+                    // 退订完成前回来的消费者沿同一任务重新订阅；彻底空闲才从目录中移除。
+                    if follow.updates.receiver_count() > 0 || Arc::strong_count(&follow) > 2 {
+                        continue;
+                    }
+                    follows.remove(&id);
+                }
                 break;
             }
             let terminal = attempt

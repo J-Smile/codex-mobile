@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{broadcast, Mutex},
+    sync::{broadcast, Mutex, Semaphore},
     task::JoinHandle,
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
@@ -139,6 +139,7 @@ pub struct MockDesktop {
     pub connections: AtomicU64,
     pub broadcasts: broadcast::Sender<Value>,
     pub pending_requests: Mutex<HashMap<String, Value>>,
+    pub unsubscribe_gate: Mutex<Option<Arc<Semaphore>>>,
     codex_home: PathBuf,
     other_home: PathBuf,
     next_turn: AtomicU64,
@@ -197,6 +198,7 @@ impl MockDesktop {
             connections: AtomicU64::new(0),
             broadcasts,
             pending_requests: Mutex::new(HashMap::new()),
+            unsubscribe_gate: Mutex::new(None),
             codex_home: fixture.paths.codex_home.clone(),
             other_home,
             next_turn: AtomicU64::new(1),
@@ -215,6 +217,10 @@ impl MockDesktop {
                 let cancel = cancel.clone();
                 let expected = format!("Bearer {token}");
                 let task = tokio::spawn(async move {
+                    #[allow(
+                        clippy::result_large_err,
+                        reason = "tungstenite 回调要求按值返回 HTTP 响应，不能替换为 Box"
+                    )]
                     let Ok(socket) = tokio_tungstenite::accept_hdr_async(
                         socket,
                         |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
@@ -298,6 +304,10 @@ impl MockDesktop {
             return Ok(Some(json!({"goal":null})));
         }
         if method == "thread/unsubscribe" {
+            let gate = self.unsubscribe_gate.lock().await.clone();
+            if let Some(gate) = gate {
+                gate.acquire().await.unwrap().forget();
+            }
             return Ok(Some(json!({"status":"unsubscribed"})));
         }
         if method == "initialize" || method == "codexMobile/attach" {
