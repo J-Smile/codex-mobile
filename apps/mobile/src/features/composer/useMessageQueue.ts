@@ -11,8 +11,15 @@ export type QueuedMessage = {
   attachmentCount?: number;
 };
 export type QueueSnapshot = { revision: string; messages: QueuedMessage[] };
-export type QueueActions = { remove: (messageId: string) => Promise<boolean> };
-type QueueChange = { action: 'delete'; messageId: string };
+export type QueueActions = {
+  remove: (messageId: string) => Promise<boolean>;
+  send?: (messageId: string) => Promise<boolean>;
+  edit?: (messageId: string, prompt: string, revision: string) => Promise<boolean>;
+  reorder?: (messageIds: string[], revision: string) => Promise<boolean>;
+};
+type QueueChange = { action: 'delete' | 'send'; messageId: string }
+  | { action: 'edit'; messageId: string; prompt: string }
+  | { action: 'reorder'; messageIds: string[] };
 
 export function useMessageQueue(options: { threadId: () => string; authenticated: () => boolean }) {
   const queue = shallowRef<QueueSnapshot | null>(null);
@@ -94,6 +101,9 @@ export function useMessageQueue(options: { threadId: () => string; authenticated
   function remove(messageId: string) {
     return change({ action: 'delete', messageId });
   }
+  function send(messageId: string) { return change({ action: 'send', messageId }); }
+  function edit(messageId: string, prompt: string, revision: string) { return change({ action: 'edit', messageId, prompt }, revision); }
+  function reorder(messageIds: string[], revision: string) { return change({ action: 'reorder', messageIds }, revision); }
 
   watch([options.threadId, options.authenticated], () => {
     generation++;
@@ -108,5 +118,5 @@ export function useMessageQueue(options: { threadId: () => string; authenticated
     void reload();
   }, { immediate: true });
   onScopeDispose(() => { generation++; reader?.abort(); writer?.abort(); });
-  return { queue, loading, busy, error, acceptSnapshot, reload, remove };
+  return { queue, loading, busy, error, acceptSnapshot, reload, remove, send, edit, reorder };
 }

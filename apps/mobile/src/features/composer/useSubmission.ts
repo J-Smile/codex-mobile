@@ -5,6 +5,8 @@ import { desktopStorageKey } from '../../transport.ts';
 export interface OperationReceipt {
   threadId?: string;
   firstTurnAccepted?: boolean;
+  firstTurnPending?: boolean;
+  execution?: 'mobile';
   status?: string;
 }
 export interface PendingOperation {

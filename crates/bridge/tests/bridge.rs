@@ -327,16 +327,22 @@ async fn update_settings_report_running_versions_without_waiting_for_app_server(
         json!({"connected":true,"native":false,"version":"0.171.0-alpha.13"})
     );
     assert!(settings.get("token").is_none());
-    let removed: Value = client
-        .delete(&url)
-        .header("cookie", &cookie)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(removed["appServer"], settings["appServer"]);
+    assert!(settings.get("configured").is_none());
+    assert!(settings.get("source").is_none());
+    // 旧网页不能再保存或删除凭据；拒绝后正常状态读取仍可用。
+    for method in [reqwest::Method::POST, reqwest::Method::DELETE] {
+        let response = client
+            .request(method, &url)
+            .header("cookie", &cookie)
+            .header("x-codex-mobile-contract", "2")
+            .json(&json!({"token":"synthetic-unused"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 405);
+        assert_eq!(read().await["appServer"], settings["appServer"]);
+    }
+    assert!(!f.paths.data_home.join("github-token").exists());
 
     mock.reject_init.store(true, Ordering::Release);
     connection.close();

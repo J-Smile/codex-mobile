@@ -292,7 +292,6 @@ summary { display: flex; align-items: center; gap: 8px; min-height: 46px; list-s
 summary::-webkit-details-marker { display: none; }
 summary::before { content: ""; width: 6px; height: 6px; flex: none; margin-right: 2px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform 200ms var(--ease); }
 details[open] > summary::before { transform: rotate(45deg); }
-.summary-info { margin-left: auto; color: var(--muted); font-size: 12px; }
 .details-body { min-width: 0; padding-bottom: 14px; }
 .hint { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .hint.error-text { color: var(--error); }

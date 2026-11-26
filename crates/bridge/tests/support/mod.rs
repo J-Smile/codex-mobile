@@ -116,6 +116,7 @@ impl Fixture {
 
 pub struct MockDesktop {
     pub calls: Arc<Mutex<Vec<Value>>>,
+    runtime: codex_mobile_bridge::runtime::RuntimeInfo,
     pub threads: Mutex<HashMap<String, Value>>,
     pub loaded_threads: Mutex<HashSet<String>>,
     pub native_threads: Mutex<Vec<Value>>,
@@ -146,12 +147,21 @@ pub struct MockDesktop {
 }
 impl MockDesktop {
     pub async fn start(fixture: &Fixture) -> Arc<Self> {
+        Self::start_mode(fixture, false).await
+    }
+    pub async fn start_control_fixture(fixture: &Fixture) -> Arc<Self> {
+        Self::start_mode(fixture, true).await
+    }
+    async fn start_mode(fixture: &Fixture, authenticated: bool) -> Arc<Self> {
         let (broadcasts, _) = broadcast::channel(2048);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("ws://{}", listener.local_addr().unwrap());
         let other_home = fixture.temp.path().join("other-codex");
         std::fs::create_dir_all(&other_home).unwrap();
+        let runtime = fixture.runtime(&endpoint);
+        let token = runtime.auth_token.clone();
         let mock = Arc::new(Self {
+            runtime,
             calls: Arc::new(Mutex::new(vec![])),
             threads: Mutex::new(
                 ["chat", "other"]
@@ -193,7 +203,6 @@ impl MockDesktop {
             cancel: CancellationToken::new(),
             tasks: std::sync::Mutex::new(vec![]),
         });
-        fixture.runtime(&endpoint);
         let weak = Arc::downgrade(&mock);
         let cancel = mock.cancel.clone();
         let task = tokio::spawn(async move {
@@ -204,8 +213,31 @@ impl MockDesktop {
                 };
                 let child_mock = weak.clone();
                 let cancel = cancel.clone();
+                let expected = format!("Bearer {token}");
                 let task = tokio::spawn(async move {
-                    let Ok(socket) = tokio_tungstenite::accept_async(socket).await else {
+                    let Ok(socket) = tokio_tungstenite::accept_hdr_async(
+                        socket,
+                        |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                         response| {
+                            if authenticated
+                                && request
+                                    .headers()
+                                    .get("authorization")
+                                    .and_then(|value| value.to_str().ok())
+                                    != Some(expected.as_str())
+                            {
+                                return Err(
+                                    tokio_tungstenite::tungstenite::http::Response::builder()
+                                        .status(401)
+                                        .body(Some("fixture authentication required".into()))
+                                        .unwrap(),
+                                );
+                            }
+                            Ok(response)
+                        },
+                    )
+                    .await
+                    else {
                         return;
                     };
                     let Some(mock) = child_mock.upgrade() else {
@@ -283,6 +315,12 @@ impl MockDesktop {
             ));
         }
         let id = params["threadId"].as_str().unwrap_or("chat");
+        if method == "codexMobile/thread/route" {
+            return Ok(Some(
+                json!({"threadId":id,"instanceId":self.runtime.instance_id,
+                "available":self.threads.lock().await.contains_key(id) && uuid::Uuid::parse_str(id).is_ok()}),
+            ));
+        }
         let result = match method {
             "thread/loaded/list" => {
                 json!({"data":self.loaded_threads.lock().await.iter().collect::<Vec<_>>(),"nextCursor":null})
@@ -325,6 +363,18 @@ impl MockDesktop {
                 json!({"thread":self.threads.lock().await.get(id).ok_or_else(||"thread not found".to_owned())?["thread"]})
             }
             "thread/start" => {
+                if params["historyMode"] == "legacy" {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let mut state = official_thread(&id, false);
+                    state["thread"]["cwd"] = params["cwd"].clone();
+                    state["cwd"] = params["cwd"].clone();
+                    state["thread"]["turns"] = json!([]);
+                    if let Some(model) = params.get("model") {
+                        state["model"] = model.clone();
+                    }
+                    self.threads.lock().await.insert(id, state.clone());
+                    return Ok(Some(state));
+                }
                 assert_eq!(params["ephemeral"], true);
                 assert_eq!(params["threadSource"], "codex-mobile-control");
                 let id = "fixture-control";

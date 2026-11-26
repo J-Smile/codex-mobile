@@ -27,17 +27,15 @@
 
 ### 软件更新
 
-从 v0.3.26 起，安装版直接读取公开仓库的正式 Release，无需 GitHub token。桌面点击“检查更新”，或在手机“设置 → 在线升级”中点击“立即升级”。更新来源默认收起。
+从 v0.3.26 起，安装版直接读取公开仓库的正式 Release，无需 GitHub token。桌面点击“检查更新”，或在手机“设置 → 在线升级”中点击“立即升级”。更新固定使用项目的公开发布源，无需填写仓库地址或配置凭据。
 
 更新时两端显示检查、下载、校验和解压的实际阶段；下载大小未知时显示已下载字节。重复点击不会启动第二次更新，失败会保留具体阶段和原因。
 
-遇到 GitHub 请求限额时，可在“更新来源”配置可选 token。生成 fine-grained personal access token，仅选择 J-Smile/codex-mobile 仓库，并授予 Contents: read。验证成功后只保存在电脑上，界面不回显，浏览器不持久化。旧 token 失效或无权读取新仓库时，本轮检查和下载自动改用匿名请求；移除 token 后仍可更新。
+遇到 GitHub 请求限额时，请稍后重试。更新器不读取旧版保存的 GitHub token 或 CODEX_MOBILE_GITHUB_TOKEN 环境变量。
 
 旧版客户端仍使用旧升级逻辑；无法检查更新时，从 GitHub Releases 手动安装一次 v0.3.26 或更高版本。同版本重新打包不会触发自动升级，后续修复使用递增版本号。
 
 手机“设置 → 在线升级”同时显示运行中的 Codex Mobile 版本和当前官方连接的版本。App Server 版本来自连接握手；原生 App Tools 没有提供版本时显示“版本未知”，不冒充 App Server 版本。断开时显示“未连接”，重新打开面板会读取最新状态。
-
-token 位于 Windows 的 %USERPROFILE%/.codex-mobile/github-token 或 macOS 的 ~/.codex-mobile/github-token。环境变量 CODEX_MOBILE_GITHUB_TOKEN 优先；使用环境变量时界面会显示来源并禁止覆盖。
 
 安装包每 15 分钟检查正式 Release。Rust 更新器下载对应平台的 ZIP、校验 SHA-256 和运行资源，等待在途请求完成或记录未知结果后切换桌面版本。新版报告服务就绪后才保存安装记录；启动失败时仅可恢复同样声明新连接边界的版本并显示原因，同一失败版本等待后续版本。电脑端也可以手动检查和安装。
 
@@ -63,6 +61,8 @@ npm start / npm run dev 会构建手机网页和 Rust 组件，再启动 Tauri �
 正式安装程序和更新包统一由 GitHub Actions 构建，日常使用不在本机重复打包。npm run build:native 与 npm run package 是原生构建入口，发布时由 CI 执行；npm run build 使用 Docker 单独构建手机与桌面前端。
 
 ### 历史阅读与任务操作
+
+新建和发送统一交给官方 Codex 桌面工具执行，沿用桌面的模型服务配置。Mobile 不启动独立模型运行时，不直接请求模型。
 
 Windows 版可以向官方确认的本机聊天发送文字。聊天内点“新建聊天”以当前聊天为来源；首页新建先选择来源聊天，再选择其官方项目。创建只提交一次，正式聊天 ID 返回后继续确认首轮，结果不明时不会再次创建。忙时文字由官方追加消息入口处理，不表示已开放队列管理。
 
@@ -243,7 +243,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 CI 开始时校验所有版本号和发布标签。安装程序、免安装 ZIP 和 SHA-256 文件全部上传完成后，Release 才正式可见。已发布版本不覆盖；需要修复时提高版本号再发布。未勾选 publish 的分支手动构建只生成 Artifacts，桌面不会安装这些构建。
 
-GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。内置更新器默认匿名读取公开 Release，可选的只读 token 只保存在本机；两者用途独立，真实凭据和本机数据不进入公开仓库。
+GitHub 构建与发布使用工作流自带的 GITHUB_TOKEN，无需把本机 token 上传为仓库 Secret。内置更新器固定匿名读取项目的公开 Release，不需要用户配置 GitHub 凭据；构建发布凭据与客户端更新用途独立，真实凭据和本机数据不进入公开仓库。
 
 npm run package 只复制桌面程序、Rust 组件、手机构建资源和 README，在隔离数据目录启动包内 Rust HTTP 服务，检查网页资源与认证。个人历史、密钥、浏览器资料和本地配置不进入发布包。CI 的编译与隔离测试不代替 Windows/macOS 桌面和真实手机的实机验收。
 

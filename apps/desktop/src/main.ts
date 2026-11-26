@@ -83,12 +83,6 @@ document.querySelector('#app')!.innerHTML = `
               <div class="details-body"><p id="release-date" class="hint"></p><div id="release-notes" class="release-notes"></div><button id="release-page" class="quiet-button" type="button">在 GitHub 查看版本</button></div>
             </details>
           </div>
-          <details id="update-settings"><summary>更新来源<span id="token-state" class="summary-info"></span></summary>
-            <div class="details-body" data-feedback>
-              <form id="token-form"><label for="token">GitHub token（可选）</label><input id="token" type="password" autocomplete="off" placeholder="无需填写即可更新" aria-describedby="token-hint"><p id="token-hint" class="hint">公开版本可直接更新，token 只保存在本机</p><div class="inline-actions"><button id="save-token" class="secondary-button" type="submit" disabled>验证并保存</button><button id="token-help" class="quiet-button" type="button">生成 token</button><button id="remove-token" class="quiet-button" type="button" hidden>移除 token</button></div></form>
-              <div id="remove-token-confirm" class="inline-confirm" hidden><p>移除后继续使用免 token 更新。</p><button id="confirm-remove-token" class="secondary-button">确认移除</button><button id="cancel-remove-token" class="quiet-button">取消</button></div>
-            </div>
-          </details>
         </section>
         <section class="preferences-section" aria-labelledby="connection-settings-title">
           <h3 id="connection-settings-title">连接与维护</h3>
@@ -190,11 +184,10 @@ function render() {
   statusText('runtime-state', launching ? '正在连接 Codex…' : syncError || state.runtime.message);
   element('version').textContent = `v${state.version}`;
   const settings = state.updateSettings;
-  const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停，可手动检查更新。' : '自动检查公开版本，无需配置 token。';
+  const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停，可手动检查更新。' : '自动检查正式版本。';
   statusText('update-status', state.update.message || mode);
   if (state.update.phase === 'checking' && button('check-update').getAttribute('aria-busy') === 'true') feedback(state.update.message);
   element('update-status').classList.toggle('error-text', state.update.phase === 'error');
-  element('token-state').textContent = settings.configured ? '公开仓库 · 已配置 token' : '公开仓库 · 免 token';
   element('release-preview').hidden = !state.release;
   if (state.release) {
     element('release-title').textContent = 'v' + state.release.version + ' 更新内容';
@@ -203,21 +196,16 @@ function render() {
     element('release-date').hidden = !state.release.publishedAt;
   }
   button('apply-update').textContent = state.update.version ? '安装 v' + state.update.version + ' 并重启' : '安装并重启';
-  field('token').disabled = busy || settings.source === 'environment';
-  element('token-hint').textContent = settings.source === 'environment' ? '当前可选 token 由电脑环境变量提供。若要修改，请调整环境变量并重启。' : `${settings.configured ? 'token 已保存。' : '无需 token 即可更新。'}可选 token 仅需 Contents: read 权限，只保存在本机。`;
-  for (const id of ['toggle-service', 'settings-service', 'save-service', 'copy-diagnostics', 'rotate-key', 'confirm-remove-token', 'confirm-rotate']) button(id).disabled = busy;
+  for (const id of ['toggle-service', 'settings-service', 'save-service', 'copy-diagnostics', 'rotate-key', 'confirm-rotate']) button(id).disabled = busy;
   for (const id of ['toggle-service', 'settings-service', 'save-service']) button(id).disabled = busy || launching;
   button('open-codex').disabled = busy || launching;
   button('open-codex-action').disabled = busy || launching;
-  button('save-token').disabled = busy || settings.source === 'environment' || !field('token').value.trim();
   element('sync-actions').hidden = state.sync.state !== 'error';
   button('retry-sync').disabled = busy || launching;
   button('copy-key').disabled = busy || !pairing;
   button('check-update').disabled = busy || settings.mode === 'source' || state.update.phase === 'checking' || state.update.phase === 'applying';
   button('apply-update').hidden = state.update.phase !== 'ready';
   button('apply-update').disabled = busy;
-  button('remove-token').hidden = !settings.configured || settings.source !== 'file';
-  button('remove-token').disabled = busy;
   field('launch-on-login').disabled = busy || startupEnabled === undefined;
   if (!busy) field('launch-on-login').checked = startupEnabled === true;
   element('qr').hidden = !pairing || !running;
@@ -357,7 +345,6 @@ button('close-settings').addEventListener('click', () => preferences.close());
 preferences.addEventListener('close', () => {
   if (field('key').type === 'text') button('reveal-key').click();
   element('rotate-confirm').hidden = true;
-  element('remove-token-confirm').hidden = true;
   if (preferences.contains(element('notice'))) {
     element('relay-access').append(element('notice'));
     if (!busy) feedback('');
@@ -422,7 +409,6 @@ on('copy-key','', async () => {
 on('copy-diagnostics','', async () => { const text = await request<string>('diagnostics');await navigator.clipboard.writeText(text);feedback('诊断信息已复制。'); });
 button('reveal-key').addEventListener('click', () => { const show = field('key').type === 'password';field('key').type = show ? 'text' : 'password';button('reveal-key').textContent = show ? '隐藏' : '显示';button('reveal-key').setAttribute('aria-pressed',String(show)); });
 button('theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';document.documentElement.dataset.theme = theme;localStorage.setItem('codex-mobile-desktop-theme',theme); });
-field('token').addEventListener('input', render);
 field('launch-on-login').addEventListener('change', () => {
   const enabled = field('launch-on-login').checked;
   void run('launch-on-login','正在保存开机启动设置…',async () => {
@@ -437,11 +423,6 @@ on('confirm-rotate','正在刷新连接密钥…', async () => { pairing=await r
 on('check-update','正在检查并准备更新…', async () => { state=await request<Status>('check_update');feedback(state.update.message); });
 on('apply-update','正在完成当前请求并切换版本…', async () => { await request('apply_update'); });
 on('release-page','', async () => { await request('open_external',{destination:'releases'}); });
-on('token-help','', async () => { await request('open_external',{destination:'token'});feedback('在 GitHub 选择 codex-mobile 仓库，并授予 Contents 的只读权限。'); });
-element('token-form').addEventListener('submit', event => { event.preventDefault();void run('save-token','正在验证并保存 token…',async () => { await request('save_update_token',{token:field('token').value});field('token').value='';await refresh();feedback('token 已验证并保存。'); }); });
-button('remove-token').addEventListener('click', () => { element('remove-token-confirm').hidden=false;button('confirm-remove-token').focus(); });
-button('cancel-remove-token').addEventListener('click', () => { element('remove-token-confirm').hidden=true;button('remove-token').focus(); });
-on('confirm-remove-token','正在移除 token…', async () => { await request('remove_update_token');await refresh();element('remove-token-confirm').hidden=true;feedback('token 已移除。'); });
 
 try { await refresh(true);await refreshPairing(); }
 catch (error) { feedback(errorMessage(error), true); statusText('service-state', '无法读取桌面状态'); statusText('qr-empty', '请从桌面程序打开此页面'); }

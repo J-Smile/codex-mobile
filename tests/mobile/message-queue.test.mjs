@@ -21,6 +21,27 @@ function fixture(t, fetch) {
   return { queue, threadId, authenticated };
 }
 
+test('Mobile 队列编辑保留修订号，排序和执行复用同一提交生命周期', async t => {
+  const calls = [];
+  const { queue } = fixture(t, async (url, options) => {
+    if (options.method !== 'POST') return response(snapshot('version-1', ['a', 'b']));
+    const input = JSON.parse(options.body); calls.push(input);
+    return response(snapshot('version-' + (calls.length + 1), input.action === 'send' ? ['b'] : ['a', 'b']));
+  });
+  await setImmediate();
+  assert.equal(await queue.edit('a', '修改后的文字', 'version-1'), true);
+  assert.equal(await queue.edit('a', '旧编辑草稿', 'version-1'), false);
+  assert.equal(calls.length, 1);
+  assert.equal(await queue.reorder(['b', 'a'], 'version-2'), true);
+  assert.equal(await queue.send('a'), true);
+  assert.deepEqual(calls, [
+    { action: 'edit', messageId: 'a', prompt: '修改后的文字', revision: 'version-1' },
+    { action: 'reorder', messageIds: ['b', 'a'], revision: 'version-2' },
+    { action: 'send', messageId: 'a', revision: 'version-3' },
+  ]);
+  assert.equal(queue.busy.value, false);
+});
+
 test('实时队列更新到达后，旧读取结果不会覆盖最新顺序', async (t) => {
   const pending = deferred();
   const { queue } = fixture(t, () => pending.promise);

@@ -127,6 +127,15 @@ export function useImageAttachments(options: { draftKey: () => string }) {
     error.value = '';
   }
 
+  function moveDraft(from: string, to: string) {
+    if (drafts[to]?.length || drafts[from]?.some(entry => entry.status === 'uploading' || entry.status === 'error' && !entry.unavailable)) return false;
+    if (drafts[from]?.length) {
+      drafts[to] = drafts[from];
+      delete drafts[from];
+    }
+    return true;
+  }
+
   async function retry(id: string) {
     const key = options.draftKey();
     const entry = drafts[key]?.find(image => image.id === id);
@@ -164,5 +173,5 @@ export function useImageAttachments(options: { draftKey: () => string }) {
     files.clear();
   });
 
-  return { images, uploading, hasPendingUploads, hasErrors, canReload, saveDrafts, error, add, remove, clear, clearAll, retry, readyImages, checkPreview };
+  return { images, uploading, hasPendingUploads, hasErrors, canReload, saveDrafts, error, add, remove, clear, clearAll, moveDraft, retry, readyImages, checkPreview };
 }

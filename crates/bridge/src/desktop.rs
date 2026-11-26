@@ -584,6 +584,13 @@ impl Desktop {
                     .write()
                     .await
                     .hydrate(&resume, &connection.id, sequence)?;
+                for request in connection.pending_requests(&id) {
+                    follow
+                        .state
+                        .write()
+                        .await
+                        .server_request(&connection.id, request);
+                }
                 *follow.connection.write().await = Some(connection.clone());
                 follow.updates.send_modify(|view| {
                     view.owner = Some(connection.id.clone());
@@ -761,24 +768,152 @@ impl Desktop {
             .settings_view(self.history.recent_models()?);
         Ok(settings)
     }
-    pub async fn update_settings(self: &Arc<Self>, _id: &str, _changes: Value) -> Result<Value> {
-        Err(BridgeError::unavailable("手机设置当前仅供查看，请在桌面修改。").before_send())
+    pub async fn update_settings(self: &Arc<Self>, id: &str, changes: Value) -> Result<Value> {
+        self.session.require("settings")?;
+        let (follow, connection) = self.connected_follow(id).await?;
+        let mut params = changes.clone();
+        params["threadId"] = json!(id);
+        if let Some(permission) = changes["permissions"].as_str() {
+            for (key, value) in crate::state::permissions(permission)?.as_object().unwrap() {
+                params[key] = value.clone();
+            }
+        }
+        if let Some(mode) = params.as_object_mut().unwrap().remove("mode") {
+            let state = follow.state.read().await;
+            params["collaborationMode"] = json!({"mode":mode,"settings":{
+                "model":changes.get("model").unwrap_or(&state.settings["model"]),
+                "reasoning_effort":changes.get("effort").unwrap_or(&state.settings["effort"]),
+                "developer_instructions":null}});
+        }
+        connection.rpc("thread/settings/update", params).await?;
+        let (snapshot, sequence) = connection.rpc_with_sequence("thread/resume", json!({"threadId":id,
+            "excludeTurns":true,"initialTurnsPage":{"limit":5,"sortDirection":"desc","itemsView":"full"}})).await?;
+        follow
+            .state
+            .write()
+            .await
+            .hydrate(&snapshot, &connection.id, sequence)?;
+        Self::publish(&follow).await;
+        let settings = follow
+            .state
+            .read()
+            .await
+            .settings_view(self.history.recent_models()?);
+        Ok(settings)
     }
     pub async fn interrupt(self: &Arc<Self>, id: &str, turn_id: &str) -> Result<Value> {
-        // 暂停目标与中断轮次缺少已验收的组合语义，不能宣称全部停止。
-        let _ = (id, turn_id);
-        Err(BridgeError::unavailable("请在桌面停止任务及目标。").before_send())
+        self.session.require("interrupt")?;
+        let lock = self.queue_lock(id).await;
+        let _guard = lock.lock().await;
+        let (follow, connection) = self.connected_follow(id).await?;
+        if follow.state.read().await.active_turn() != Some(turn_id) {
+            return Err(BridgeError::new(409, "任务已变化，请刷新后再停止。").before_send());
+        }
+        let goal = connection
+            .rpc("thread/goal/get", json!({"threadId":id}))
+            .await?;
+        let paused = goal["goal"]["status"] == "active";
+        if paused {
+            connection
+                .rpc("thread/goal/set", json!({"threadId":id,"status":"paused"}))
+                .await?;
+        }
+        connection
+            .rpc("turn/interrupt", json!({"threadId":id,"turnId":turn_id}))
+            .await
+            .map_err(|mut error| {
+                if paused {
+                    error.before_send = false;
+                    error.message = format!("目标已暂停，但停止轮次尚未确认：{}", error.message);
+                }
+                error
+            })?;
+        Ok(json!({"ok":true,"goalPaused":paused,"turnId":turn_id}))
     }
-    pub async fn resume_turn(&self, _id: &str, _turn_id: &str) -> Result<Value> {
-        Err(BridgeError::unavailable("请在桌面继续异常任务。").before_send())
+    pub async fn resume_turn(self: &Arc<Self>, id: &str, turn_id: &str) -> Result<Value> {
+        self.session.require("resume")?;
+        let lock = self.queue_lock(id).await;
+        let _guard = lock.lock().await;
+        let (follow, connection) = self.connected_follow(id).await?;
+        {
+            let state = follow.state.read().await;
+            if state.turns.last().is_none_or(|turn| {
+                turn["id"] != turn_id
+                    || !matches!(turn["status"].as_str(), Some("failed" | "interrupted"))
+            }) {
+                return Err(BridgeError::new(
+                    409,
+                    "仅能继续最后一个失败或停止的任务，请刷新确认。",
+                )
+                .before_send());
+            }
+        }
+        if !Self::queue_rows(&connection, id).await?.is_empty() {
+            return Err(
+                BridgeError::new(409, "请先处理待执行队列，再继续上一任务。").before_send(),
+            );
+        }
+        // 协议没有 turn/resume。保留原轮次，以明确指令开启后续轮次。
+        connection.rpc("turn/start", json!({"threadId":id,"clientUserMessageId":format!("continue-{}",crate::digest(turn_id)),
+            "input":Self::input("请基于当前聊天继续上一轮未完成的任务，先核对已有结果，避免重复已经完成的操作。", &[])})).await
     }
     pub async fn reply(
         self: &Arc<Self>,
-        _id: &str,
-        _request_id: &str,
-        _input: &Value,
+        id: &str,
+        request_id: &str,
+        input: &Value,
     ) -> Result<Value> {
-        Err(BridgeError::unavailable("请在桌面处理问题和审批；手机保留答案草稿。").before_send())
+        self.session.require("interactions")?;
+        let (follow, connection) = self.connected_follow(id).await?;
+        let mut changes = follow.updates.subscribe();
+        let request = follow.state.read().await.requests.get(request_id).cloned();
+        if let Some(request) = request {
+            let result = crate::interactions::app_server_reply(&request, input)
+                .map_err(BridgeError::before_send)?;
+            connection.respond(request["id"].clone(), result).await?;
+        } else {
+            let state = follow.state.read().await;
+            let prompt = crate::interactions::async_reply(&state.turns, request_id, input)
+                .map_err(BridgeError::before_send)?;
+            let active = state.active_turn().map(str::to_owned);
+            drop(state);
+            let params = json!({"threadId":id,"input":Self::input(&prompt,&[]),"clientUserMessageId":format!("reply-{}",crate::digest(request_id))});
+            if let Some(turn) = active {
+                let mut params = params;
+                params["expectedTurnId"] = json!(turn);
+                connection.rpc("turn/steer", params).await?;
+            } else {
+                connection.rpc("turn/start", params).await?;
+            }
+        }
+        let resolved = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                if !connection.is_alive() || follow.state.read().await.generation != connection.id {
+                    return Err(BridgeError::unavailable(
+                        "回复后的连接已断开，请等待同步；不会重复提交。",
+                    ));
+                }
+                if !follow
+                    .state
+                    .read()
+                    .await
+                    .pending()
+                    .iter()
+                    .any(|entry| entry["id"] == request_id)
+                {
+                    return Ok(json!({"ok":true,"resolved":true}));
+                }
+                changes
+                    .changed()
+                    .await
+                    .map_err(|_| BridgeError::unavailable("回复结果尚未确认，请重新连接查看。"))?;
+            }
+        })
+        .await;
+        match resolved {
+            Ok(Ok(result)) => Ok(result),
+            _ => Ok(json!({"ok":true,"resolved":false})),
+        }
     }
     async fn queue_rows(connection: &AppServerConnection, id: &str) -> Result<Vec<Value>> {
         let mut rows = vec![];
@@ -818,6 +953,7 @@ impl Desktop {
     pub async fn queue(&self, id: &str) -> Result<Value> {
         self.session.require("queue")?;
         let connection = self.session.connect().await?;
+        self.authorize_on(&connection, id).await?;
         Self::read_queue(&connection, id).await
     }
     fn input(prompt: &str, images: &[Value]) -> Vec<Value> {
@@ -869,27 +1005,80 @@ impl Desktop {
             .clone()
     }
     pub async fn update_queue(self: &Arc<Self>, id: &str, change: QueueChange) -> Result<Value> {
-        let QueueOperation::Delete { message_id } = change.operation else {
-            return Err(BridgeError::unavailable(
-                "手机仅支持删除待执行项；编辑、排序和立即发送请在桌面处理。",
-            )
-            .before_send());
+        let capability = match &change.operation {
+            QueueOperation::Delete { .. } => "queue",
+            QueueOperation::Edit { .. } => "queueEdit",
+            QueueOperation::Reorder { .. } => "queueReorder",
+            QueueOperation::Send { .. } => "queueStart",
         };
+        self.session.require(capability)?;
         let lock = self.queue_lock(id).await;
         let _guard = lock.lock().await;
         let (_, connection) = self.connected_follow(id).await?;
         let rows = Self::queue_rows(&connection, id).await?;
-        if Self::queue_snapshot(&rows)["revision"] != change.revision
-            || !rows.iter().any(|row| row["id"] == message_id)
-        {
+        if Self::queue_snapshot(&rows)["revision"] != change.revision {
             return Err(BridgeError::new(409, "队列已变化，请刷新确认。").before_send());
         }
-        connection
-            .rpc(
-                "thread/queue/delete",
-                json!({"threadId":id,"queuedSubmissionId":message_id}),
-            )
-            .await?;
+        let (method, mut params) = match change.operation {
+            QueueOperation::Reorder { message_ids } => {
+                let unique: std::collections::HashSet<_> = message_ids.iter().collect();
+                if unique.len() != rows.len()
+                    || unique.len() != message_ids.len()
+                    || rows
+                        .iter()
+                        .any(|row| !message_ids.iter().any(|id| row["id"] == *id))
+                {
+                    return Err(
+                        BridgeError::new(409, "排序必须包含当前队列的每一项。").before_send()
+                    );
+                }
+                (
+                    "thread/queue/reorder",
+                    json!({"queuedSubmissionIds":message_ids}),
+                )
+            }
+            operation => {
+                let message_id = match &operation {
+                    QueueOperation::Delete { message_id }
+                    | QueueOperation::Send { message_id }
+                    | QueueOperation::Edit { message_id, .. } => message_id,
+                    _ => unreachable!(),
+                };
+                let row = rows
+                    .iter()
+                    .find(|row| row["id"] == *message_id)
+                    .ok_or_else(|| {
+                        BridgeError::new(409, "待执行项已变化，请刷新确认。").before_send()
+                    })?;
+                let mut params = json!({"queuedSubmissionId":message_id});
+                let method = match operation {
+                    QueueOperation::Delete { .. } => "thread/queue/delete",
+                    QueueOperation::Send { .. } => "thread/queue/start",
+                    QueueOperation::Edit { prompt, .. } => {
+                        let mut input: Vec<Value> = row["input"]
+                            .as_array()
+                            .ok_or_else(|| {
+                                BridgeError::unavailable("Codex 队列内容格式无效，尚未修改。")
+                                    .before_send()
+                            })?
+                            .iter()
+                            .filter(|item| item["type"] != "text")
+                            .cloned()
+                            .collect();
+                        if prompt.trim().is_empty() && input.is_empty() {
+                            return Err(BridgeError::invalid("请输入待执行内容。").before_send());
+                        }
+                        input.splice(0..0, Self::input(&prompt, &[]));
+                        params["input"] = json!(input);
+                        "thread/queue/update"
+                    }
+                    _ => unreachable!(),
+                };
+                (method, params)
+            }
+        };
+        params["threadId"] = json!(id);
+        connection.rpc(method, params).await?;
         Self::read_queue(&connection, id).await
     }
     pub async fn send_message(
@@ -940,9 +1129,23 @@ impl Desktop {
                 .map_err(BridgeError::before_send)?
                 .is_empty()
         {
+            if !selection.is_empty() {
+                return Err(BridgeError::new(
+                    409,
+                    "当前需加入队列，队列不能覆盖模型；请清除本次模型选择后发送。",
+                )
+                .before_send());
+            }
             return Self::enqueue_on(&connection, id, prompt, message_id, images).await;
         }
-        connection.rpc("turn/start",json!({"threadId":id,"input":Self::input(prompt,images),"clientUserMessageId":message_id})).await
+        let mut params = json!({"threadId":id,"input":Self::input(prompt,images),"clientUserMessageId":message_id});
+        if let Some(model) = &selection.model {
+            params["model"] = json!(model);
+        }
+        if let Some(effort) = &selection.thinking {
+            params["effort"] = json!(effort);
+        }
+        connection.rpc("turn/start", params).await
     }
     async fn native_snapshot(
         &self,

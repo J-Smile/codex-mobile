@@ -45,37 +45,47 @@ test('unavailable delegation keeps the task and target editable, then submits af
   assert.deepEqual(f.events[0][1], { prompt: delegationPrompt('继续检查手机页面', target), mode: 'queue', target });
 });
 
-test('update settings retain failed input and distinguish verification from removal', async t => {
+// UPDATE-001 原凭据保存/删除场景随入口移除迁移为只读失败恢复；不再保留写凭据能力。
+test('公开更新状态读取失败可重试，保留暂停模式且不提交凭据', async t => {
   let resolveRequest, rejectRequest;
   const f = fixture(t, 'settings/UpdateSettings.vue', { open: false }, () => new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; }));
-  f.app.token.value = 'fixture-token';
-  f.app.reveal.value = true;
-  const failed = f.app.save();
-  assert.equal(f.app.busy.value, 'saving');
-  rejectRequest(new Error('无法连接 GitHub'));
+  const failed = f.app.load();
+  assert.equal(f.app.loading.value, true);
+  rejectRequest(new Error('无法连接电脑'));
   await failed;
-  assert.equal(f.app.busy.value, '');
-  assert.equal(f.app.token.value, 'fixture-token');
-  assert.equal(f.app.error.value, '无法连接 GitHub');
+  assert.equal(f.app.loading.value, false);
+  assert.equal(f.app.status.value, undefined);
+  assert.equal(f.app.error.value, '无法连接电脑');
 
-  const saved = f.app.save();
-  resolveRequest({ configured: true, source: 'file', version: '0.2.1', mode: 'paused' });
-  await saved;
-  assert.equal(f.app.token.value, '');
-  assert.equal(f.app.reveal.value, false);
-  assert.equal(f.app.notice.value, 'Token 已验证并保存。');
+  const retry = f.app.load();
+  resolveRequest({ version: '0.3.29', mode: 'paused', update: { phase: 'idle' } });
+  await retry;
+  assert.equal(f.app.loading.value, false);
+  assert.equal(f.app.error.value, '');
   assert.equal(f.app.status.value.mode, 'paused');
+  assert.equal(f.app.canUpgrade.value, true);
+  assert.ok(f.calls.every(call => call.url === '/api/update-settings' && !call.method && !call.body));
+});
 
-  f.app.confirmRemove.value = true;
-  const removed = f.app.remove();
-  assert.equal(f.app.busy.value, 'removing');
-  assert.equal(f.calls.at(-1).method, 'DELETE');
-  resolveRequest({ configured: false, source: null, version: '0.2.1', mode: 'paused' });
-  await removed;
-  assert.equal(f.app.busy.value, '');
-  assert.equal(f.app.confirmRemove.value, false);
-  assert.equal(f.app.status.value.configured, false);
-  assert.equal(f.app.notice.value, 'Token 已移除，继续使用免 token 更新。');
+test('关闭或重新打开升级面板不接收旧版本读取的迟到结果', async t => {
+  const pending = [];
+  const f = fixture(t, 'settings/UpdateSettings.vue', { open: false }, () => new Promise(resolve => pending.push(resolve)));
+  const first = f.app.load();
+  const second = f.app.load();
+  assert.equal(f.calls[0].signal.aborted, true);
+  pending[1]({ version: '0.3.29', mode: 'automatic' });
+  await second;
+  pending[0]({ version: '0.3.28', mode: 'source' });
+  await first;
+  assert.equal(f.app.status.value.version, '0.3.29');
+  f.props.open = true;
+  await vue.nextTick();
+  f.props.open = false;
+  await vue.nextTick();
+  assert.equal(f.calls.at(-1).signal.aborted, true);
+  pending[2]({ version: '0.3.27', mode: 'automatic' });
+  await vue.nextTick();
+  assert.equal(f.app.status.value, undefined);
 });
 
 test('手机免 token 升级只提交一次，失败保留面板，接受请求后关闭面板', async t => {
@@ -90,7 +100,7 @@ test('手机免 token 升级只提交一次，失败保留面板，接受请求�
       rejectStart = reject;
     }),
   });
-  f.app.status.value = { configured: false, source: null, version: '0.3.8', mode: 'paused' };
+  f.app.status.value = { version: '0.3.8', mode: 'paused' };
   await f.app.upgrade();
   assert.deepEqual(versions, []);
 

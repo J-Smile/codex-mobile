@@ -106,6 +106,83 @@ where
 }
 
 // OPS-003：真实提交入口的前置失败必须保持未投递，不创建未知操作。
+// MANAGED-001/002 迁移：创建统一交给 App Tools，首轮确认与创建身份仍分开，重启不重建。
+#[tokio::test]
+async fn official_creation_keeps_durable_identity_across_restart_without_separate_model_turn() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    let input = json!({"sourceThreadId":CHAT,"projectId":"project","prompt":"合成首轮","requestId":"official-create-restart-001"});
+    let (status, created) = result(post(&server, &client, &cookie, "threads").json(&input)).await;
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(created["threadId"], CREATED);
+    assert_eq!(created["firstTurnAccepted"], false);
+    let (_, again) = result(post(&server, &client, &cookie, "threads").json(&input)).await;
+    assert_eq!(again, created);
+    assert_eq!(peer.count("create_thread").await, 1);
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    assert!(peer
+        .calls
+        .lock()
+        .await
+        .iter()
+        .all(|call| matches!(call["method"].as_str(), Some("tools/list" | "tools/call"))));
+    server.stop().await.unwrap();
+    let (restarted, next_peer, _, client, cookie) = start(&fixture).await;
+    let (_, again) = result(post(&restarted, &client, &cookie, "threads").json(&input)).await;
+    assert_eq!(again["threadId"], CREATED);
+    assert_eq!(next_peer.count("create_thread").await, 0);
+    assert_eq!(next_peer.count("send_message_to_thread").await, 0);
+    restarted.stop().await.unwrap();
+}
+
+// 官方创建包含首条指令，回执无法确认时原创建身份阻止重建，不拆出另一条模型请求。
+#[tokio::test]
+async fn lost_official_creation_receipt_remains_queryable_and_never_recreates_or_replays() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    *peer.create_reply.lock().await = Some(
+        json!({"success":true,"contentItems":[{"type":"inputText","text":"unrecognized receipt"}]}),
+    );
+    let input = json!({"sourceThreadId":CHAT,"projectId":"project","prompt":"合成首轮","requestId":"official-create-lost-001"});
+    let (status, failure) = result(post(&server, &client, &cookie, "threads").json(&input)).await;
+    assert_ne!(status, 200);
+    assert_eq!(failure["outcome"], "unknown");
+    let (_, again) = result(post(&server, &client, &cookie, "threads").json(&input)).await;
+    assert_eq!(again["outcome"], "unknown");
+    let pending = lookup(&server, &client, &cookie, "official-create-lost-001").await;
+    assert_eq!(pending["phase"], "unknown");
+    assert_eq!(pending["target"], "new:project");
+    assert_eq!(pending["kind"], "create");
+    let mut changed = input.clone();
+    changed["requestId"] = json!("official-create-changed-002");
+    changed["prompt"] = json!("修改文字也不能绕过未决创建");
+    let (status, _) = result(post(&server, &client, &cookie, "threads").json(&changed)).await;
+    assert_eq!(status, 409);
+    assert_eq!(peer.count("create_thread").await, 1);
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn stale_mobile_execution_is_rejected_before_dispatch_and_does_not_create_an_operation() {
+    let fixture = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&fixture).await;
+    let (status, failure) = result(post(&server, &client, &cookie, "threads").json(&json!({
+        "execution":"mobile","sourceThreadId":CHAT,"projectId":"project","prompt":"旧页面合成请求","requestId":"stale-mobile-create-001"
+    }))).await;
+    assert_eq!(status, 400);
+    assert_eq!(failure["outcome"], "not-dispatched");
+    assert_eq!(peer.count("create_thread").await, 0);
+    assert_eq!(peer.count("send_message_to_thread").await, 0);
+    assert_eq!(
+        lookup(&server, &client, &cookie, "stale-mobile-create-001").await["phase"],
+        "missing"
+    );
+    assert!(!fixture.paths.data_home.join("managed").exists());
+    assert_ne!(server.app.session.capabilities()["managedCreate"], true);
+    server.stop().await.unwrap();
+}
+
 #[tokio::test]
 async fn http_submission_preflight_failures_never_dispatch_or_become_unknown() {
     let fixture = Fixture::new();

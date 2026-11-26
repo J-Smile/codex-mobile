@@ -1,14 +1,29 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue';
-import { ArrowDown, Delete, List, Loading } from '@element-plus/icons-vue';
+import { ArrowDown, ArrowUp, Delete, EditPen, VideoPlay, List, Loading } from '@element-plus/icons-vue';
 import type { QueueActions, QueueSnapshot } from './useMessageQueue';
 import { splitDraftContext } from './composerContext';
 import CollapseMotion from '../../components/CollapseMotion.vue';
+import NativeSheet from '../../components/NativeSheet.vue';
 
-const props = defineProps<{ queue: QueueSnapshot | null; loading: boolean; busy: boolean; error: string; actions: QueueActions; disabled?: boolean; compact?: boolean }>();
+const props = defineProps<{ queue: QueueSnapshot | null; loading: boolean; busy: boolean; error: string; actions: QueueActions; disabled?: boolean; compact?: boolean; capabilities?: Record<string, boolean>; active?: boolean }>();
 const emit = defineEmits<{ reload: []; expand: [] }>();
 const id = useId();
 const expanded = ref(false);
+const editing = ref<{ id: string; prompt: string; revision: string }>();
+function edit(message: { id: string; prompt: string }) {
+  if (props.queue) editing.value = { id: message.id, prompt: message.prompt, revision: props.queue.revision };
+}
+async function save() {
+  const draft = editing.value;
+  if (draft && await props.actions.edit?.(draft.id, draft.prompt, draft.revision)) editing.value = undefined;
+}
+function move(index: number) {
+  if (!props.queue || index <= 0) return;
+  const ids = props.queue.messages.map(message => message.id);
+  [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
+  void props.actions.reorder?.(ids, props.queue.revision);
+}
 const rows = computed(() => (props.queue?.messages || []).map(message => ({ ...message, preview: splitDraftContext(message.prompt) })));
 const revealed = computed(() => expanded.value && !props.compact);
 watch(() => rows.value.length, count => { if (!count) expanded.value = false; });
@@ -34,12 +49,27 @@ function toggle() {
             <p>{{ message.preview.text || '附件消息' }}</p>
             <span v-if="message.attachmentCount" class="muted small">{{ message.attachmentCount }} 个附件</span>
           </div>
-          <button type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'删除第 ' + (index + 1) + ' 条消息'" @click="actions.remove(message.id)"><Delete /></button>
+          <div class="queue-actions">
+            <button v-if="capabilities?.queueStart" type="button" class="icon-button" :disabled="disabled || busy || loading || active" :aria-label="'执行第 ' + (index + 1) + ' 条消息'" @click="actions.send?.(message.id)"><VideoPlay /></button>
+            <button v-if="capabilities?.queueEdit" type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'编辑第 ' + (index + 1) + ' 条消息'" @click="edit(message)"><EditPen /></button>
+            <button v-if="capabilities?.queueReorder && index > 0" type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'上移第 ' + (index + 1) + ' 条消息'" @click="move(index)"><ArrowUp /></button>
+            <button type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'删除第 ' + (index + 1) + ' 条消息'" @click="actions.remove(message.id)"><Delete /></button>
+          </div>
         </li>
       </ol>
       <p class="muted small">队列由桌面执行。编辑、排序和立即发送请在桌面处理。</p>
     </CollapseMotion>
   </section>
+  <NativeSheet :open="!!editing" labelledby="queue-edit-title" @close="editing = undefined">
+    <form v-if="editing" @submit.prevent="save">
+      <h2 id="queue-edit-title">编辑待执行消息</h2>
+      <textarea v-model="editing.prompt" aria-label="待执行内容" class="queue-editor" :disabled="disabled || busy" />
+      <p class="muted small">已附图片保留。队列变化后请重新打开编辑。</p>
+      <p v-if="error" role="alert" class="error-text">{{ error }}</p>
+      <button type="button" class="text-button" @click="editing = undefined">取消</button>
+      <button type="submit" class="text-button" :disabled="disabled || busy">保存</button>
+    </form>
+  </NativeSheet>
 </template>
 
 <style scoped>
@@ -52,6 +82,8 @@ function toggle() {
 .queue-count { color: var(--signal); font-variant-numeric: tabular-nums; }
 .queue-list { list-style: none; margin: 0; padding: 0; }
 .queue-row { display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid var(--border); }
+.queue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 96px; }
+.queue-editor { width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); color: var(--text); font: inherit; resize: vertical; }
 .queued-content { flex: 1; min-width: 0; padding: 10px 4px; overflow-wrap: anywhere; }
 .queued-content p { margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
 .message-queue > p, .message-queue .muted { overflow-wrap: anywhere; }

@@ -204,6 +204,20 @@ test('回到已跳过题重新作答取消跳过，正常发送完整答案', as
   assert.deepEqual(JSON.parse(f.calls[0].body), { answers: { choice: ['直接发送'], details: ['保留既有行为'] } });
 });
 
+test('回复已投递但未确认时保留卡片答案，重复点击不再提交，权威快照才结束', async t => {
+  const entry = question({ questions: [{ id: 'answer', question: '合成问题', header: '', options: [], secret: false }] });
+  const f = fixture(t, [entry], async () => ({ resolved: false }));
+  f.app.draft.value.text.answer = '尚待确认的合成答案';
+  f.app.customInput();
+  await f.app.submit(); await settled();
+  assert.equal(f.app.active.value.id, entry.id);
+  assert.equal(f.app.draft.value.busy, true);
+  assert.equal(f.app.draft.value.text.answer, '尚待确认的合成答案');
+  await f.app.submit(); assert.equal(f.calls.length, 1);
+  f.props.interactions = []; await settled();
+  assert.equal(f.app.active.value, undefined);
+});
+
 test('不可回复或断线卡片不占用普通输入，连接恢复仍保留答案', async t => {
   const f = fixture(t, [question()]);
   f.app.draft.value.text.details = '尚未提交';

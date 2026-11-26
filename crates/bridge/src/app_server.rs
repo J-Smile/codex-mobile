@@ -161,10 +161,15 @@ struct Pending {
     reply: oneshot::Sender<Result<(Value, u64)>>,
     delivery: Arc<Delivery>,
 }
+struct ServerRequest {
+    message: Value,
+    responding: bool,
+}
 struct Shared {
     runtime: Mutex<Option<(std::path::PathBuf, crate::runtime::RuntimeInfo)>>,
     native: Option<crate::native::NativeOwner>,
     pending: Mutex<HashMap<String, Pending>>,
+    requests: Mutex<HashMap<String, ServerRequest>>,
     alive: Arc<AtomicBool>,
     cancel: CancellationToken,
     id: String,
@@ -201,12 +206,12 @@ pub struct AppServerConnection {
 
 impl AppServerConnection {
     pub async fn connect(endpoint: &str) -> Result<Arc<Self>> {
-        Self::connect_inner(endpoint, None).await
+        Self::connect_inner(endpoint, None, false).await
     }
     pub async fn connect_broker(endpoint: &str, token: &str) -> Result<Arc<Self>> {
-        Self::connect_inner(endpoint, Some(token)).await
+        Self::connect_inner(endpoint, Some(token), true).await
     }
-    async fn connect_inner(endpoint: &str, token: Option<&str>) -> Result<Arc<Self>> {
+    async fn connect_inner(endpoint: &str, token: Option<&str>, broker: bool) -> Result<Arc<Self>> {
         let socket = connect_authenticated(endpoint, token).await?;
         let id = uuid::Uuid::new_v4().to_string();
         let (events, _) = broadcast::channel(256);
@@ -215,6 +220,7 @@ impl AppServerConnection {
             runtime: Mutex::new(None),
             native: None,
             pending: Mutex::new(HashMap::new()),
+            requests: Mutex::new(HashMap::new()),
             alive: alive.clone(),
             cancel: CancellationToken::new(),
             id: id.clone(),
@@ -233,13 +239,13 @@ impl AppServerConnection {
             shared,
         };
         connection.initialized = connection
-            .rpc(if token.is_some() { "codexMobile/attach" } else { "initialize" }, json!({
+            .rpc(if broker { "codexMobile/attach" } else { "initialize" }, json!({
                 "clientInfo": {"name": "codex-mobile", "title": "Codex Mobile", "version": env!("CARGO_PKG_VERSION")},
                 "capabilities": {"experimentalApi": true, "mcpServerOpenaiFormElicitation": true}
             }))
             .await
             .map_err(BridgeError::before_send)?;
-        if token.is_none() {
+        if !broker {
             connection
                 .notify("initialized", json!({}))
                 .await
@@ -265,6 +271,7 @@ impl AppServerConnection {
             runtime: Mutex::new(None),
             native: Some(owner),
             pending: Mutex::new(HashMap::new()),
+            requests: Mutex::new(HashMap::new()),
             alive: alive.clone(),
             cancel: CancellationToken::new(),
             id: id.clone(),
@@ -326,6 +333,16 @@ impl AppServerConnection {
     }
     pub fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
         self.events.subscribe()
+    }
+    pub fn pending_requests(&self, thread: &str) -> Vec<Value> {
+        self.shared
+            .requests
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|request| request.message["params"]["threadId"] == thread)
+            .map(|request| request.message.clone())
+            .collect()
     }
     pub async fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         self.request(method, params, REQUEST_TIMEOUT).await
@@ -412,11 +429,27 @@ impl AppServerConnection {
     }
     /// Reply using the original request id on its original connection.
     pub async fn respond(&self, id: Value, result: Value) -> Result<()> {
-        if rpc_id(&id).is_none() {
-            return Err(BridgeError::invalid("App Server 请求编号无效。").before_send());
+        let key = rpc_id(&id)
+            .ok_or_else(|| BridgeError::invalid("App Server 请求编号无效。").before_send())?;
+        {
+            let mut requests = self.shared.requests.lock().unwrap();
+            let request = requests
+                .get_mut(&key)
+                .filter(|request| !request.responding)
+                .ok_or_else(|| {
+                    BridgeError::new(409, "该请求已回复或已结束，请等待状态同步。").before_send()
+                })?;
+            request.responding = true;
         }
-        self.send(json!({"jsonrpc": "2.0", "id": id, "result": result}))
-            .await
+        let sent = self
+            .send(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+            .await;
+        if sent.as_ref().is_err_and(|error| error.before_send) {
+            if let Some(request) = self.shared.requests.lock().unwrap().get_mut(&key) {
+                request.responding = false;
+            }
+        }
+        sent
     }
     async fn send(&self, value: Value) -> Result<()> {
         if !self.is_alive() {
@@ -466,6 +499,28 @@ fn rpc_id(value: &Value) -> Option<String> {
 fn receive(shared: &Shared, value: Value) -> Result<()> {
     let sequence = shared.sequence.fetch_add(1, Ordering::AcqRel) + 1;
     if value.get("method").is_some() {
+        if let Some(key) = value.get("id").and_then(rpc_id) {
+            shared
+                .requests
+                .lock()
+                .unwrap()
+                .entry(key)
+                .or_insert_with(|| ServerRequest {
+                    message: value.clone(),
+                    responding: false,
+                });
+        } else if value["method"] == "serverRequest/resolved" {
+            shared
+                .requests
+                .lock()
+                .unwrap()
+                .remove(&value["params"]["requestId"].to_string());
+        } else if value["method"] == "turn/completed" {
+            shared.requests.lock().unwrap().retain(|_, request| {
+                request.message["params"]["threadId"] != value["params"]["threadId"]
+                    || request.message["params"]["turnId"] != value["params"]["turn"]["id"]
+            });
+        }
         let event = if value.get("id").is_some() {
             AppServerEvent::ServerRequest {
                 connection_id: shared.id.clone(),

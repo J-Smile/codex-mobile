@@ -18,9 +18,9 @@ const selected = ast.statements.filter((node) => {
 const compiled = ts.transpileModule(selected, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 
 function fixture(t, respond = async () => ({ threadId: 'created-chat' })) {
-  const requests = [], cleared = [], opened = [];
+  const requests = [], cleared = [], opened = [], moved = [];
   const state = {
-    authenticated: ref(true), resumableTurn: ref(),
+    authenticated: ref(true), resumableTurn: ref(), resuming: ref(false),
     projects: ref([{ projectId: 'project-a', label: '项目 A', path: '/project-a' }]),
     selectedProjectId: ref('project-a'), selectedId: ref(''), newChat: ref(true),
     drafts: reactive({ 'new:project-a': '检查手机布局' }),
@@ -38,7 +38,7 @@ function fixture(t, respond = async () => ({ threadId: 'created-chat' })) {
     voice: { busy: ref(false) }, nextTick: async()=>{}, resizeComposer() {}, scrollBottom() {}, reconcilePending() {},
     location: { origin: 'http://localhost' }, threadUrl: (id, route) => '/api/threads/' + id + '/' + route,
     messageQueue: { acceptSnapshot() {} }, mergeTurns: (previous, next) => next, updateThread() {}, historyGap: null, historyRequest: null,
-    attachments: { readyImages: () => [...images.value], clear: (key, ids) => { cleared.push({ key, ids }); } },
+    attachments: { readyImages: () => [...images.value], clear: (key, ids) => { cleared.push({ key, ids }); }, moveDraft: (from, to) => { moved.push({ from, to }); return true; } },
     request: async (url, options) => {
       const call = { url, options, body: JSON.parse(options.body) };
       requests.push(call);
@@ -54,8 +54,39 @@ function fixture(t, respond = async () => ({ threadId: 'created-chat' })) {
   const app = scope.run(() => new Function(...Object.keys(bindings), compiled
     + '\nreturn { createChat, restoreCreation, recoveredCreations, send, applySnapshot, draft, draftKey, modelSelection, sending, creationSource, createdDraft, firstTurnPending };')(...Object.values(bindings)));
   t.after(() => scope.stop());
-  return { ...state, ...app, requests, cleared, opened, images };
+  return { ...state, ...app, requests, cleared, opened, images, moved, unresolvedOperations: submissions.unresolvedOperations };
 }
+
+test('独立新建首条失败后草稿归入原聊天，创建身份结束但未决消息仍阻止重发', async t => {
+  const app = fixture(t, async () => ({ threadId: 'created-chat', execution: 'mobile', firstTurnAccepted: false, firstTurnPending: false }));
+  app.capabilities.value.create = true; app.creationSource.value = 'chosen-source';
+  app.modelSelection.value = { model: 'selected-model', thinking: 'high' };
+  await app.createChat();
+  assert.equal(app.drafts['created-chat'], '检查手机布局');
+  assert.equal(app.drafts['new:project-a'], undefined);
+  assert.deepEqual(app.modelDrafts['created-chat'], { model: 'selected-model', thinking: 'high' });
+  assert.deepEqual(app.moved, [{ from: 'new:project-a', to: 'created-chat' }]);
+  assert.deepEqual(app.cleared, []);
+  assert.equal(app.firstTurnPending.value, false);
+  assert.equal(app.createdDraft.value, null);
+  assert.equal(app.recoveredCreations.value.length, 0);
+  app.capabilities.value.send = true;
+  app.unresolvedOperations.value = [{ id: 'first-identity', target: 'created-chat', phase: 'unknown', kind: 'message' }];
+  await app.send();
+  assert.equal(app.requests.length, 1);
+  assert.equal(app.draft.value, '检查手机布局');
+});
+
+test('独立创建结果恢复不覆盖原聊天后续编辑的草稿', async t => {
+  const app = fixture(t, async () => ({ threadId: 'created-chat', execution: 'mobile', firstTurnAccepted: false, firstTurnPending: false }));
+  app.capabilities.value.create = true; app.creationSource.value = 'chosen-source';
+  app.drafts['created-chat'] = '已编辑的后续消息';
+  await app.createChat();
+  assert.equal(app.drafts['created-chat'], '已编辑的后续消息');
+  assert.equal(app.drafts['new:project-a'], '检查手机布局');
+  assert.deepEqual(app.moved, []);
+  assert.deepEqual(app.cleared, []);
+});
 
 test('新建未验收时不请求、不清空草稿与图片、不产生临时对话', async t => {
   const app = fixture(t);

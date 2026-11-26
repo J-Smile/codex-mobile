@@ -14,6 +14,13 @@ struct PendingSend {
     hash: String,
     result: watch::Sender<Option<Result<Value>>>,
 }
+struct OperationIdentity {
+    owner: String,
+    key: String,
+    hash: String,
+    target: String,
+    kind: &'static str,
+}
 /// 一次提交的校验、投递与回执持久化；复用服务的关停边界。
 pub(crate) struct Submissions {
     pub operations: Operations,
@@ -44,6 +51,12 @@ impl Submissions {
         })
     }
     pub async fn create(self: &Arc<Self>, operation_owner: String, input: Value) -> Result<Value> {
+        if input.get("execution").is_some() {
+            return Err(
+                BridgeError::invalid("新建聊天统一由官方桌面执行，请刷新手机页面后重试。")
+                    .before_send(),
+            );
+        }
         let (images, prompt, request_id, selection, title, source, project) = async {
             let images = image_ids(input.get("images"))?;
             if !images.is_empty() {
@@ -113,11 +126,13 @@ impl Submissions {
         let this = self.clone();
         let result = self
             .dedup(
-                operation_owner,
-                request_id.clone(),
-                hash,
-                target,
-                "create",
+                OperationIdentity {
+                    owner: operation_owner,
+                    key: request_id.clone(),
+                    hash,
+                    target,
+                    kind: "create",
+                },
                 async move {
                     let attachments = this
                         .images
@@ -191,11 +206,13 @@ impl Submissions {
         let queued = mode == "queue";
         let result = self
             .dedup(
-                operation_owner,
-                key,
-                hash,
-                id.to_string(),
-                "message",
+                OperationIdentity {
+                    owner: operation_owner,
+                    key,
+                    hash,
+                    target: id.to_string(),
+                    kind: "message",
+                },
                 async move {
                     let attachments = this
                         .images
@@ -217,18 +234,17 @@ impl Submissions {
         let queued = queued || result["status"] == "queued";
         Ok(json!({"accepted":true,"queued":queued,"result":result}))
     }
-    async fn dedup<F>(
-        self: &Arc<Self>,
-        owner: String,
-        key: String,
-        hash: String,
-        target: String,
-        kind: &'static str,
-        operation: F,
-    ) -> Result<Value>
+    async fn dedup<F>(self: &Arc<Self>, identity: OperationIdentity, operation: F) -> Result<Value>
     where
         F: std::future::Future<Output = Result<Value>> + Send + 'static,
     {
+        let OperationIdentity {
+            owner,
+            key,
+            hash,
+            target,
+            kind,
+        } = identity;
         let instance = self
             .session
             .connect()
@@ -294,6 +310,49 @@ impl Submissions {
                 BridgeError::unavailable("等待操作结果的连接已关闭，请查看聊天确认。")
             })?;
         }
+    }
+    pub async fn reply(
+        self: &Arc<Self>,
+        owner: String,
+        id: &str,
+        request: &str,
+        input: Value,
+    ) -> Result<Value> {
+        let desktop = self.desktop.clone();
+        let target = format!("reply:{id}:{request}");
+        let key = crate::digest(&target);
+        let hash = crate::digest(input.to_string());
+        let id = id.to_owned();
+        let request = request.to_owned();
+        self.dedup(
+            OperationIdentity {
+                owner,
+                key,
+                hash,
+                target,
+                kind: "reply",
+            },
+            async move { desktop.reply(&id, &request, &input).await },
+        )
+        .await
+    }
+    pub async fn resume(self: &Arc<Self>, owner: String, id: &str, turn: &str) -> Result<Value> {
+        let desktop = self.desktop.clone();
+        let target = format!("continue:{id}:{turn}");
+        let key = crate::digest(&target);
+        let id = id.to_owned();
+        let turn = turn.to_owned();
+        self.dedup(
+            OperationIdentity {
+                owner,
+                key: key.clone(),
+                hash: key,
+                target,
+                kind: "continue",
+            },
+            async move { desktop.resume_turn(&id, &turn).await },
+        )
+        .await
     }
 }
 fn message_fields(input: &Value, images: &[String]) -> Result<(String, String)> {

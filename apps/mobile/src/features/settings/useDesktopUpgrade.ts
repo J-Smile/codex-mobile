@@ -2,8 +2,6 @@ import { onScopeDispose, ref } from 'vue';
 import { ApiError, request } from '../../api.ts';
 
 export type DesktopUpdateSettings = {
-  configured: boolean;
-  source: 'file' | 'environment' | null;
   version: string;
   appServer?: { connected: boolean; version: string | null };
   mode: 'source' | 'paused' | 'automatic';

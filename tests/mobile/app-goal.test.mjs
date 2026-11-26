@@ -18,7 +18,7 @@ function fixture(t) {
     selectedThread: ref({ id: 'chat', goal: { objective: '进行中的目标', status: 'active' }, model: 'fixture-model', mode: 'plan' }),
     turns: ref([{ id: 'turn', status: 'inProgress' }]), stopping: ref(false),
     goalOpen: ref(false), contextOpen: ref(false), delegationOpen: ref(false),
-    sending: ref(false), imagesUploading: ref(false), imageErrors: ref(false), composerMenu: ref(false),
+    sending: ref(false), resuming: ref(false), imagesUploading: ref(false), imageErrors: ref(false), composerMenu: ref(false),
     draftText: ref('@'), composer: ref(null), voice: { clear() {}, busy: ref(false) },
     newChat: ref(false), draftKey: ref('chat'), hasMessage: ref(true), resumableTurn: ref(),
     draftImages: ref([]), firstTurnPending: ref(false), delegationError: ref(''),

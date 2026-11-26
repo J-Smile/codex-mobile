@@ -458,16 +458,10 @@ impl Bridge {
             return Ok(json_response(200, json!({"ready":true})));
         }
         if route == "update-settings" {
-            let mut settings = match method {
-                Method::GET => self.updates.status()?,
-                Method::POST => {
-                    self.updates
-                        .save(body(request).await?["token"].as_str().unwrap_or(""))
-                        .await?
-                }
-                Method::DELETE => self.updates.remove()?,
-                _ => return Err(not_allowed()),
-            };
+            if method != Method::GET {
+                return Err(not_allowed());
+            }
+            let mut settings = self.updates.status();
             settings["appServer"] = self.session.status();
             if let Some(host) = self.host.upgrade() {
                 settings["update"] = host.mobile_update_status().await;
@@ -764,8 +758,8 @@ impl Bridge {
             }
             return Ok(json_response(
                 200,
-                self.desktop
-                    .reply(id, &parts[4], &body(request).await?)
+                self.submissions
+                    .reply(operation_owner, id, &parts[4], body(request).await?)
                     .await?,
             ));
         }
@@ -875,10 +869,17 @@ impl Bridge {
                     .ok_or_else(|| BridgeError::invalid("没有正在执行的任务。"))?;
                 Ok(json_response(200, self.desktop.interrupt(id, turn).await?))
             }
-            ("resume", Method::POST) => Err(BridgeError::unavailable(
-                "当前协议不能约束需要继续的轮次，请在桌面继续异常任务。",
-            )
-            .before_send()),
+            ("resume", Method::POST) => {
+                let input = body(request).await?;
+                let turn = input["turnId"]
+                    .as_str()
+                    .filter(|id| !id.is_empty() && id.len() <= 100)
+                    .ok_or_else(|| BridgeError::invalid("需要明确要继续的轮次。"))?;
+                Ok(json_response(
+                    200,
+                    self.submissions.resume(operation_owner, id, turn).await?,
+                ))
+            }
             ("open", Method::POST) => {
                 let result = self
                     .desktop

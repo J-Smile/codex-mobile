@@ -60,7 +60,7 @@ const server = http.createServer(async (request, response) => {
       ...(scenario.historyOnly ? { native: false, readLive: false, send: false, create: false, images: false, modelSelection: false } : {}) };
     if (url.pathname === '/api/session') return json({ capabilities: currentCapabilities });
     if (url.pathname === '/api/update-settings') return json({
-      configured: false, source: null, version: scenario.version || '0.3.28', mode: 'automatic',
+      version: scenario.version || '0.3.28', mode: 'automatic',
       update: scenario.update || { phase: 'idle', message: '' },
     });
     if (url.pathname === '/api/update') return json({ accepted: true });
@@ -377,6 +377,10 @@ async function verifyUpgrade(page) {
     await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'hidden' });
   }
   await openUpgrade();
+  const initialSheet = page.getByRole('dialog', { name: '在线升级', exact: true });
+  assert.equal(await initialSheet.locator('input, form, #update-source-content').count(), 0);
+  assert.doesNotMatch(await initialSheet.innerText(), /token|更新来源|Repository/);
+  await page.screenshot({ path: path.join(output, 'mobile-public-update-' + scenario.width + '.png') });
   scenario.update = { phase: 'checking', stage: 'downloading', message: '正在下载安装包：1.0 MiB / 2.0 MiB（50%）',
     downloadedBytes: 1048576, totalBytes: 2097152 };
   await page.getByRole('button', { name: '立即升级', exact: true }).click();
@@ -815,6 +819,7 @@ try {
 await import('./desktop-update.mjs');
 await import('./service-worker-update.mjs');
 await import('./reply-layout.mjs');
+await import('./managed-controls.mjs');
 assert.deepEqual(pageErrors, [], '页面执行不能产生未处理异常');
 assert.equal(results.filter(result => result.status === 'failed').length, 0, '浏览器回归存在失败，查看 report.json 与截图');
 console.log(`Docker browser regression: ${results.length} passed; artifacts: ${output}`);

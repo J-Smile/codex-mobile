@@ -6,6 +6,27 @@ import { useImageAttachments } from '../../apps/mobile/src/features/composer/use
 const image = (letter = 'a') => ({ id: letter.repeat(32) + '.png', name: '图片.png', url: '/api/images/' + letter.repeat(32) + '.png', size: 12, type: 'image/png' });
 const photo = () => new File([new Uint8Array([1, 2, 3])], '图片.png', { type: 'image/png' });
 
+test('创建结果恢复迁移已上传图片，不重复上传、不释放预览、不覆盖目标草稿', async t => {
+  let calls = 0;
+  const { attachments, key, scope, open } = fixture(t, async () => Response.json(image(++calls === 1 ? 'a' : 'b')));
+  await attachments.add([photo()]);
+  const preview = attachments.images.value[0].previewUrl;
+  assert.equal(attachments.moveDraft('chat-a', 'created-chat'), true);
+  assert.deepEqual(attachments.readyImages('chat-a'), []);
+  key.value = 'created-chat';
+  assert.equal(attachments.images.value[0].previewUrl, preview);
+  assert.deepEqual(attachments.readyImages(), [image('a')]);
+  key.value = 'chat-a';
+  await attachments.add([photo()]);
+  assert.equal(attachments.moveDraft('chat-a', 'created-chat'), false);
+  assert.deepEqual(attachments.readyImages(), [image('b')]);
+  assert.equal(calls, 2);
+  scope.stop();
+  const restored = open().attachments;
+  assert.deepEqual(restored.readyImages('created-chat'), [image('a')]);
+  assert.deepEqual(restored.readyImages('chat-a'), [image('b')]);
+});
+
 function fixture(t, respond) {
   const previousFetch = globalThis.fetch;
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');

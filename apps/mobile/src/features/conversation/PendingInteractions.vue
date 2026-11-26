@@ -116,7 +116,11 @@ async function submit(action = 'accept') {
   if (!submission) return;
   if (localSkip) { replies.finish(submission); return; }
   try {
-    await request(threadUrl(submission.threadId, 'interactions/' + encodeURIComponent(current.id)), { method: 'POST', body: JSON.stringify(payload) });
+    const result = await request<{ resolved?: boolean }>(threadUrl(submission.threadId, 'interactions/' + encodeURIComponent(current.id)), { method: 'POST', body: JSON.stringify(payload) });
+    if (result?.resolved === false) {
+      submission.draft.error = '回复已投递，正在等待运行时确认；不会重复发送。';
+      return;
+    }
     replies.finish(submission);
   } catch (failure) {
     replies.fail(submission, (failure as Error).message);

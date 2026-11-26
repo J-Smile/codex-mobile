@@ -111,7 +111,6 @@ async fn open_codex(state: State<'_, AppState>) -> Result<Value> {
 #[tauri::command]
 fn open_external(app: tauri::AppHandle, destination: &str) -> Result<()> {
     let url = match destination {
-        "token" => "https://github.com/settings/personal-access-tokens/new",
         "repository" => "https://github.com/J-Smile/codex-mobile",
         "releases" => "https://github.com/J-Smile/codex-mobile/releases",
         _ => return Err(BridgeError::invalid("链接不存在。")),
@@ -119,14 +118,6 @@ fn open_external(app: tauri::AppHandle, destination: &str) -> Result<()> {
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| BridgeError::unavailable(e.to_string()))
-}
-#[tauri::command]
-async fn save_update_token(state: State<'_, AppState>, token: String) -> Result<Value> {
-    state.host.updates.save(&token).await
-}
-#[tauri::command]
-async fn remove_update_token(state: State<'_, AppState>) -> Result<Value> {
-    state.host.updates.remove()
 }
 #[tauri::command]
 async fn check_update(state: State<'_, AppState>) -> Result<Value> {
@@ -254,8 +245,6 @@ fn main() {
             diagnostics,
             open_codex,
             open_external,
-            save_update_token,
-            remove_update_token,
             check_update,
             apply_update
         ])

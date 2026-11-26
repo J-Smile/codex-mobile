@@ -14,6 +14,8 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Session {
     paths: Paths,
+    #[cfg(test)]
+    shared_fixture: std::sync::atomic::AtomicBool,
     current: RwLock<Option<Arc<AppServerConnection>>>,
     connecting: Mutex<()>,
     pub events: broadcast::Sender<AppServerEvent>,
@@ -22,6 +24,12 @@ pub struct Session {
 }
 
 impl Session {
+    // 仅供合成协议回归：仍走真实的实例、目录、路由和连接校验；发行版无此入口。
+    #[cfg(test)]
+    pub(crate) fn enable_shared_fixture(&self) {
+        self.shared_fixture
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
     #[cfg(test)]
     pub(crate) fn install_native(&self, connection: Arc<AppServerConnection>) {
         assert!(connection.is_native() && connection.is_alive() && connection.owner_valid());
@@ -33,6 +41,8 @@ impl Session {
         let (connections, _) = broadcast::channel(16);
         Arc::new(Self {
             paths,
+            #[cfg(test)]
+            shared_fixture: std::sync::atomic::AtomicBool::new(false),
             current: RwLock::new(None),
             connecting: Mutex::new(()),
             events,
@@ -74,7 +84,13 @@ impl Session {
                 }
                 let connection =
                     AppServerConnection::connect_broker(&runtime.url, &runtime.auth_token).await?;
-                if !crate::runtime::supported_initialize(&connection.initialized) {
+                let verified = crate::runtime::supported_initialize(&connection.initialized);
+                #[cfg(test)]
+                let verified = verified
+                    || self
+                        .shared_fixture
+                        .load(std::sync::atomic::Ordering::Acquire);
+                if !verified {
                     connection.close();
                     return Err(BridgeError::unavailable(
                         "当前官方协议尚未验收，手机仅提供历史只读。",
@@ -161,6 +177,16 @@ impl Session {
     }
     pub fn capabilities(&self) -> Value {
         let status = self.status();
+        #[cfg(test)]
+        if self
+            .shared_fixture
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            let available = status["connected"] == true && !self.cancel.is_cancelled();
+            return json!({"native":false,"readLive":available,"send":available,"images":available,
+                "queue":available,"queueStart":available,"queueReorder":available,"queueEdit":available,
+                "interrupt":available,"interactions":available,"resume":available,"settings":available});
+        }
         let native = status["native"] == true;
         let connected =
             (native || crate::runtime::SHARED_RUNTIME_VERIFIED) && status["connected"] == true;

@@ -125,30 +125,11 @@ impl Updates {
                 .build()?,
         })
     }
-    fn token(&self) -> Result<(String, Option<&'static str>)> {
-        if let Some(value) = std::env::var("CODEX_MOBILE_GITHUB_TOKEN")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-        {
-            return Ok((value.trim().into(), Some("environment")));
-        }
-        let file = self.directory.join("github-token");
-        if file.exists() {
-            let value = std::fs::read_to_string(file)?.trim().to_string();
-            if !value.is_empty() {
-                return Ok((value, Some("file")));
-            }
-        }
-        Ok((String::new(), None))
+    pub fn status(&self) -> Value {
+        json!({"version":env!("CARGO_PKG_VERSION"),"mode":if !self.packaged{"source"}else if std::env::var("CODEX_MOBILE_AUTO_UPDATE").as_deref()==Ok("0"){"paused"}else{"automatic"}})
     }
-    pub fn status(&self) -> Result<Value> {
-        let (_, source) = self.token()?;
-        Ok(
-            json!({"configured":source.is_some(),"source":source,"version":env!("CARGO_PKG_VERSION"),"mode":if !self.packaged{"source"}else if std::env::var("CODEX_MOBILE_AUTO_UPDATE").as_deref()==Ok("0"){"paused"}else{"automatic"}}),
-        )
-    }
-    fn request(&self, url: &str, token: &str, asset: bool) -> reqwest::RequestBuilder {
-        let request = self
+    async fn get(&self, url: &str, asset: bool, timeout: Duration) -> Result<reqwest::Response> {
+        Ok(self
             .client
             .get(url)
             .header(
@@ -159,72 +140,10 @@ impl Updates {
                     "application/vnd.github+json"
                 },
             )
-            .header("X-GitHub-Api-Version", "2022-11-28");
-        if token.is_empty() {
-            request
-        } else {
-            request.bearer_auth(token)
-        }
-    }
-    async fn get(
-        &self,
-        url: &str,
-        token: &mut String,
-        asset: bool,
-        timeout: Duration,
-    ) -> Result<reqwest::Response> {
-        let response = self
-            .request(url, token, asset)
+            .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(timeout)
             .send()
-            .await?;
-        // 旧凭据被拒绝后，本轮检查及下载都改用匿名请求，不改写已保存的凭据。
-        if !token.is_empty() && matches!(response.status().as_u16(), 401 | 403 | 404) {
-            drop(response);
-            token.clear();
-            return Ok(self
-                .request(url, token, asset)
-                .timeout(timeout)
-                .send()
-                .await?);
-        }
-        Ok(response)
-    }
-    pub async fn save(&self, value: &str) -> Result<Value> {
-        if self.token()?.1 == Some("environment") {
-            return Err(BridgeError::new(409,"当前使用电脑环境变量中的 token，请先移除 CODEX_MOBILE_GITHUB_TOKEN 并重启服务，再在网页配置。"));
-        }
-        let token = value.trim();
-        if token.is_empty() || token.chars().any(char::is_whitespace) {
-            return Err(BridgeError::invalid(
-                "请输入有效的 GitHub token，不能包含空格或换行。",
-            ));
-        }
-        let response = self
-            .request(RELEASE_URL, token, false)
-            .send()
-            .await
-            .map_err(|_| {
-                BridgeError::new(502, "暂时无法连接 GitHub，未保存 token。请稍后重试。")
-            })?;
-        if !response.status().is_success() {
-            return Err(BridgeError::new(400,format!("无法用此 token 读取正式版本（HTTP {}），未保存。请检查 token 是否有效及 Contents: read 权限；也可直接使用免 token 更新。",response.status().as_u16())));
-        }
-        write_private(
-            &self.directory.join("github-token"),
-            format!("{token}\n").as_bytes(),
-        )?;
-        self.status()
-    }
-    pub fn remove(&self) -> Result<Value> {
-        if self.token()?.1 == Some("environment") {
-            return Err(BridgeError::new(409,"当前 token 由电脑环境变量配置，请在电脑上移除 CODEX_MOBILE_GITHUB_TOKEN 并重启服务。"));
-        }
-        let path = self.directory.join("github-token");
-        if path.exists() {
-            std::fs::remove_file(path)?;
-        }
-        self.status()
+            .await?)
     }
     pub async fn prepare<F, R>(&self, current: &str, report: F) -> Result<Option<Candidate>>
     where
@@ -251,9 +170,8 @@ impl Updates {
                     "源码运行不安装发布更新，请使用桌面安装包。",
                 ));
             }
-            let (mut token, _) = self.token()?;
             let response = self
-                .get(release_url, &mut token, false, Duration::from_secs(15))
+                .get(release_url, false, Duration::from_secs(15))
                 .await?;
             if response.status() == reqwest::StatusCode::NOT_FOUND {
                 return Err(BridgeError::unavailable(
@@ -262,7 +180,7 @@ impl Updates {
             }
             if matches!(response.status().as_u16(), 403 | 429) {
                 return Err(BridgeError::unavailable(
-                    "GitHub 暂时限制了更新请求，请稍后重试，或在更新来源配置可选 token。",
+                    "GitHub 暂时限制了更新请求，请稍后重试。",
                 ));
             }
             if !response.status().is_success() {
@@ -328,7 +246,7 @@ impl Updates {
             let archive_url = asset(&archive_name)?;
             let checksum_url = asset(&format!("{archive_name}.sha256"))?;
             let checksum = self
-                .get(&checksum_url, &mut token, true, Duration::from_secs(15))
+                .get(&checksum_url, true, Duration::from_secs(15))
                 .await?
                 .error_for_status()?
                 .text()
@@ -362,7 +280,7 @@ impl Updates {
                 progress.start("downloading");
                 report(progress.snapshot()).await;
                 let response = self
-                    .get(&archive_url, &mut token, true, Duration::from_secs(300))
+                    .get(&archive_url, true, Duration::from_secs(300))
                     .await?
                     .error_for_status()?;
                 progress.total = response.content_length().filter(|total| *total > 0);
@@ -911,21 +829,24 @@ mod tests {
         let app = Router::new()
             .route(
                 "/releases/latest",
-                get(move || {
+                get(move |headers: HeaderMap| {
+                    assert!(!headers.contains_key("authorization"));
                     let release = release.clone();
                     async move { Json(release) }
                 }),
             )
             .route(
                 "/releases/assets/2",
-                get(move || {
+                get(move |headers: HeaderMap| {
+                    assert!(!headers.contains_key("authorization"));
                     let checksum = checksum.clone();
                     async move { checksum }
                 }),
             )
             .route(
                 "/releases/assets/1",
-                get(move || {
+                get(move |headers: HeaderMap| {
+                    assert!(!headers.contains_key("authorization"));
                     let bytes = archive.clone();
                     async move {
                         if known_length {
@@ -956,6 +877,7 @@ mod tests {
             let (url, server) = simulated_release(archive, known_length, true).await;
             let directory = tempfile::tempdir().unwrap();
             let updates = Updates::new(directory.path().into(), true).unwrap();
+            std::fs::write(directory.path().join("github-token"), [0xff, 0xfe]).unwrap();
             let observed = Arc::new(Mutex::new(Vec::new()));
             let received = observed.clone();
             let candidate = updates
@@ -1041,7 +963,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn public_updates_use_anonymous_requests_and_fall_back_once_for_rejected_credentials() {
+    async fn public_updates_ignore_legacy_credentials_for_metadata_and_assets() {
         for rejected in [
             StatusCode::UNAUTHORIZED,
             StatusCode::FORBIDDEN,
@@ -1076,10 +998,9 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let updates = Updates::new(directory.path().into(), true).unwrap();
 
-            let mut token = String::new();
             assert_eq!(
                 updates
-                    .get(&url, &mut token, false, Duration::from_secs(2))
+                    .get(&url, false, Duration::from_secs(2))
                     .await
                     .unwrap()
                     .text()
@@ -1088,19 +1009,17 @@ mod tests {
                 "public release"
             );
             std::fs::write(directory.path().join("github-token"), "expired-fixture").unwrap();
-            token = "expired-fixture".into();
             assert_eq!(
                 updates
-                    .get(&url, &mut token, false, Duration::from_secs(2))
+                    .get(&url, false, Duration::from_secs(2))
                     .await
                     .unwrap()
                     .status(),
                 StatusCode::OK
             );
-            assert!(token.is_empty());
             assert_eq!(
                 updates
-                    .get(&url, &mut token, true, Duration::from_secs(2))
+                    .get(&url, true, Duration::from_secs(2))
                     .await
                     .unwrap()
                     .status(),
@@ -1110,7 +1029,6 @@ mod tests {
                 *observed.lock().unwrap(),
                 vec![
                     (false, "application/vnd.github+json".into()),
-                    (true, "application/vnd.github+json".into()),
                     (false, "application/vnd.github+json".into()),
                     (false, "application/octet-stream".into()),
                 ]
@@ -1125,11 +1043,13 @@ mod tests {
 
     #[tokio::test]
     async fn public_requests_do_not_retry_anonymous_errors_or_server_failures() {
-        for (status, supplied_token, expected_calls) in [
-            (StatusCode::OK, "valid-fixture", 1),
-            (StatusCode::UNAUTHORIZED, "", 1),
-            (StatusCode::INTERNAL_SERVER_ERROR, "valid-fixture", 1),
-            (StatusCode::FORBIDDEN, "expired-fixture", 2),
+        for status in [
+            StatusCode::OK,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+            StatusCode::TOO_MANY_REQUESTS,
         ] {
             let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let received = calls.clone();
@@ -1147,19 +1067,15 @@ mod tests {
             });
             let directory = tempfile::tempdir().unwrap();
             let updates = Updates::new(directory.path().into(), true).unwrap();
-            let mut token = supplied_token.to_owned();
             assert_eq!(
                 updates
-                    .get(&url, &mut token, true, Duration::from_secs(2))
+                    .get(&url, true, Duration::from_secs(2))
                     .await
                     .unwrap()
                     .status(),
                 status
             );
-            assert_eq!(
-                calls.load(std::sync::atomic::Ordering::Relaxed),
-                expected_calls
-            );
+            assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
             server.abort();
         }
     }

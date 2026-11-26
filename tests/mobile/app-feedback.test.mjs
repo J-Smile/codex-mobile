@@ -17,7 +17,7 @@ function fixture(t, request) {
     loggingIn: ref(false), loginKey: ref('fixture-key'), loginError: ref(''), loginFailureStatus: ref(null),
     disconnecting: ref(false), disconnectError: ref(''), disconnectFailure: ref({ scrollIntoView() {} }), authenticated: ref(true), settingsOpen: ref(true),
     selectedId: ref('fixture-chat'), selectedThread: ref({ id: 'fixture-chat' }), turns: ref([{ id: 'turn', status: 'inProgress' }]),
-    stopping: ref(false), error: ref(''), capabilities: ref({ desktopNavigation: false }),
+    stopping: ref(false), streamStatus: ref('connected'), error: ref(''), capabilities: ref({ desktopNavigation: false }),
     usageOpen: ref(false), historyCursor: ref('older'), changedFileCount: ref(3), newChat: ref(false),
     connectionError: ref(''), composerMenu: ref(false), chatMenu: ref(false), contextOpen: ref(false), notice: ref(''),
     interactions: ref([{ id: 'question' }]), interactionState: ref({ expanded: true, pending: true }),
@@ -99,6 +99,20 @@ test('只读模式提示在桌面停止，不提交中断或清空草稿', async
   assert.deepEqual(calls, []);
   assert.equal(f.error.value, '手机停止操作尚未开放，请在官方 Codex 停止任务。');
   assert.equal(f.stopping.value, false);
+  assert.equal(f.drafts['fixture-chat'], '保留的草稿');
+});
+
+test('Mobile 停止绑定原聊天与活动轮次，重复点击和迟到失败不影响新聊天', async t => {
+  const calls = []; let reject;
+  const f = fixture(t, (url, init) => { calls.push({ url, body: JSON.parse(init.body) }); return new Promise((_, fail) => { reject = fail; }); });
+  f.capabilities.value = { interrupt: true, managed: true };
+  const stopping = f.stopTurn();
+  await f.stopTurn();
+  assert.deepEqual(calls, [{ url: '/api/threads/fixture-chat/interrupt', body: { turnId: 'turn' } }]);
+  assert.equal(f.stopping.value, true);
+  f.selectedId.value = 'another-chat'; f.error.value = '其他聊天的提示';
+  reject(new Error('旧轮次停止失败')); await stopping;
+  assert.equal(f.error.value, '其他聊天的提示'); assert.equal(f.stopping.value, false);
   assert.equal(f.drafts['fixture-chat'], '保留的草稿');
 });
 

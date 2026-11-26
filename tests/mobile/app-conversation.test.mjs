@@ -32,7 +32,7 @@ function fixture(t, request, voice = { clear() {}, busy: ref(false) }) {
     authenticated: ref(true), selectedId: ref('child'), selectedProjectId: ref('project'),
     selectedThread: ref({ id: 'child', title: '子对话' }), threads: ref([]),
     historyCursor: ref(null), changedFileCount: ref(undefined), loadingHistory: ref(false), historyError: ref(''),
-    drafts: reactive({ child: '未发送的草稿' }), draftImages: ref([]), stopping: ref(false), streamStatus: ref('connected'), imagesUploading: ref(false), imageErrors: ref(false), queueState: ref(null),
+    drafts: reactive({ child: '未发送的草稿' }), draftImages: ref([]), stopping: ref(false), resuming: ref(false), streamStatus: ref('connected'), imagesUploading: ref(false), imageErrors: ref(false), queueState: ref(null),
     voice, composer: ref(null),
     pendingMessages: ref([]), interactions: ref([]), error: ref(''), connectionError: ref(''), catalogError: ref(''),
     newChat: ref(false), navigationOpen: ref(false), usageOpen: ref(false), stickToBottom: ref(false), newOutput: ref(false),

@@ -337,7 +337,8 @@ async fn paired_phone_can_request_one_background_update_without_github_token() {
     assert_eq!(response.headers()["cache-control"], "no-store");
     let data: serde_json::Value = response.json().await.unwrap();
     assert_eq!(data["update"]["phase"], "queued");
-    assert_eq!(data["configured"], false);
+    assert!(data.get("configured").is_none());
+    assert!(data.get("source").is_none());
     assert_eq!(data["source"], serde_json::Value::Null);
     assert!(data.get("token").is_none());
     *host.update_state.write().await =

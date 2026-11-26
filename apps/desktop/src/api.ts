@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 export interface Config { port: number; bind: string; publicUrl: string; autoStart: boolean }
-export interface UpdateSettings { configured: boolean; source: 'file' | 'environment' | null; version: string; mode: 'source' | 'paused' | 'automatic' }
+export interface UpdateSettings { version: string; mode: 'source' | 'paused' | 'automatic' }
 export interface Status {
   version: string;
   service: { running: boolean; error: string | null };

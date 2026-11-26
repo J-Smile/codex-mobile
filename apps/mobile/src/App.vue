@@ -131,6 +131,7 @@ let historyGap: { olderId: string; newerId: string; cursor: string } | undefined
 let restoringFrame: ConversationFrame | undefined;
 const pendingSends = submissions.pendingSends;
 const stopping = ref(false);
+const resuming = ref(false);
 const composerMenu = ref(false);
 const reduceMotion = useReducedMotion();
 const controlSpring = computed(() => reduceMotion.value
@@ -180,7 +181,7 @@ const notifications = useNotifications(() => authenticated.value, openNotifiedTh
 const activeProject = computed(() => projects.value.find((project) => project.projectId === selectedProjectId.value));
 const projectTitle = computed(() => activeProject.value?.label || (selectedProjectId.value === 'other' ? '其他对话' : '项目'));
 const draftKey = computed(() => newChat.value ? 'new:' + selectedProjectId.value : selectedId.value);
-const sending = computed(() => pendingSends.has(draftKey.value));
+const sending = computed(() => pendingSends.has(draftKey.value) || resuming.value);
 const currentOperation = computed(() => unresolvedOperations.value.find(operation => operation.target === draftKey.value));
 const currentCreation = computed(() => recoveredCreations.value.find(operation => operation.target === draftKey.value));
 const attachments = useImageAttachments({ draftKey: () => draftKey.value });
@@ -292,7 +293,15 @@ function applyGoal(value: GoalState & { threadId: string }) {
   if (selectedThread.value?.id === value.threadId) updateThread({ ...selectedThread.value,
     goal: value.goal, completedGoal: value.completedGoal ?? selectedThread.value.completedGoal });
 }
-async function changeMode(_mode: 'default' | 'plan') { error.value = '手机模式修改尚未开放，请在官方 Codex 修改。'; }
+async function changeMode(mode: 'default' | 'plan') {
+  if (!capabilities.value.settings) { error.value = '手机模式修改尚未开放，请在官方 Codex 修改。'; return; }
+  if (modeBusy.value || !selectedId.value || streamStatus.value !== 'connected') return;
+  const thread = selectedId.value;
+  modeBusy.value = true;
+  try { await request(threadUrl(thread, 'settings'), { method: 'POST', body: JSON.stringify({ mode }) }); }
+  catch (failure) { if (selectedId.value === thread) error.value = (failure as Error).message; }
+  finally { modeBusy.value = false; }
+}
 
 async function createGoal(_input: GoalInput): Promise<void> { throw new Error('请在官方 Codex 创建和设置目标；当前草稿保留。'); }
 
@@ -482,9 +491,10 @@ const active = computed(() => turns.value.some((turn) => turn.status === 'inProg
 const resumableTurn = computed(() => {
   if (!capabilities.value.resume || newChat.value || !selectedId.value || active.value) return;
   const turn = turns.value.at(-1);
-  return turn && (turn.status === 'failed' || (turn.status === 'interrupted' && turn.error)) ? turn : undefined;
+  return turn && (turn.status === 'failed' || (turn.status === 'interrupted' && (turn.error || capabilities.value.resumeInterrupted))) ? turn : undefined;
 });
 function submissionReason(hasContent = hasMessage.value || !!resumableTurn.value) {
+  if (resuming.value) return '正在继续上一任务，请等待回执。';
   return submissions.readiness({
     target: draftKey.value, capable: !!(newChat.value ? capabilities.value.create : capabilities.value.send),
     connected: newChat.value ? authenticated.value : streamStatus.value === 'connected',
@@ -948,7 +958,7 @@ function applyUpdate(update: StreamUpdate) {
 
 watch(selectedId, (threadId) => {
   cancelHistory();
-  firstTurnPending.value = submissions.recoveredCreations.value.some(operation => operation.receipt?.threadId === threadId && !operation.receipt.firstTurnAccepted);
+  firstTurnPending.value = submissions.recoveredCreations.value.some(operation => operation.receipt?.threadId === threadId && !operation.receipt.firstTurnAccepted && operation.receipt.firstTurnPending !== false);
   voice.clear();
   interactions.value = [];
   delegationOpen.value = false;
@@ -1243,6 +1253,12 @@ async function createChat() {
     // 离开了原新建页就保留恢复入口，不让迟到回执抢走当前页面。
     if (draftKey.value !== target || !newChat.value) return;
     createdDraft.value = { threadId: result.threadId, key: target, prompt, images, selection };
+    if (result.firstTurnAccepted) {
+      if (drafts[target] === prompt) drafts[target] = '';
+      attachments.clear(target, images);
+      if (modelDrafts[target] === selection) delete modelDrafts[target];
+      createdDraft.value = null;
+    }
     const operation = recoveredCreations.value.find(value => value.id === requestId);
     if (operation) restoreCreation(operation);
   } catch (failure) { if ((failure as Error).name !== 'AbortError' && draftKey.value === target) error.value = (failure as Error).message; }
@@ -1251,15 +1267,46 @@ async function createChat() {
 function restoreCreation(operation: PendingOperation) {
   const result = operation.receipt;
   if (!result?.threadId) return;
-  if (result.firstTurnAccepted) submissions.acknowledgeCreation(operation);
+  if (result.execution === 'mobile' && !result.firstTurnAccepted && result.firstTurnPending === false) {
+    // 创建已经完成；首条消息沿原聊天的操作账本核对，草稿随用户查看结果迁入原聊天。
+    const from = operation.target, to = result.threadId;
+    if (!drafts[to] && !modelDrafts[to] && attachments.moveDraft(from, to)) {
+      if (drafts[from]) drafts[to] = drafts[from];
+      if (modelDrafts[from]) modelDrafts[to] = modelDrafts[from];
+      delete drafts[from];
+      delete modelDrafts[from];
+      if (createdDraft.value?.threadId === to) createdDraft.value = null;
+    }
+  }
+  if (result.firstTurnAccepted || result.execution === 'mobile' && result.firstTurnPending === false) submissions.acknowledgeCreation(operation);
   openThread({ id: result.threadId, title: '新对话' });
-  firstTurnPending.value = !result.firstTurnAccepted;
+  firstTurnPending.value = !result.firstTurnAccepted && result.firstTurnPending !== false;
   if (firstTurnPending.value) capabilities.value = { ...capabilities.value, send: false };
 }
 
-async function resumeTurn(_turnId: string) { error.value = '手机续接尚未开放，请在官方 Codex 继续任务。'; }
+async function resumeTurn(turnId: string) {
+  if (!capabilities.value.resume || resuming.value || streamStatus.value !== 'connected' || resumableTurn.value?.id !== turnId) return;
+  const thread = selectedId.value;
+  resuming.value = true;
+  error.value = '';
+  try {
+    await request(threadUrl(thread, 'resume'), { method: 'POST', body: JSON.stringify({ turnId }) });
+    if (selectedId.value === thread) notice.value = '已开启新一轮，继续上一任务。';
+  } catch (failure) { if (selectedId.value === thread) error.value = (failure as Error).message; }
+  finally { resuming.value = false; }
+}
 
-async function stopTurn() { error.value = '手机停止操作尚未开放，请在官方 Codex 停止任务。'; }
+async function stopTurn() {
+  if (!capabilities.value.interrupt) { error.value = '手机停止操作尚未开放，请在官方 Codex 停止任务。'; return; }
+  const turn = [...turns.value].reverse().find(turn => turn.status === 'inProgress');
+  if (!turn || !capabilities.value.interrupt || stopping.value || streamStatus.value !== 'connected') return;
+  const thread = selectedId.value;
+  stopping.value = true;
+  error.value = '';
+  try { await request(threadUrl(thread, 'interrupt'), { method: 'POST', body: JSON.stringify({ turnId: turn.id }) }); }
+  catch (failure) { if (selectedId.value === thread) error.value = (failure as Error).message; }
+  finally { stopping.value = false; }
+}
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !matchMedia('(pointer: coarse)').matches) {
@@ -1447,7 +1494,7 @@ onUnmounted(() => {
       <header class="navigation-header">
         <div class="navigation-toolbar">
           <h1>{{ hasProjects ? '项目' : '本机历史' }}</h1>
-          <button :disabled="!capabilities.create" title="请在桌面新建聊天" type="button" class="navigation-create" @click="startNewChat()"><Plus aria-hidden="true" />新聊天</button>
+          <button :disabled="!capabilities.create" title="新建聊天" type="button" class="navigation-create" @click="startNewChat()"><Plus aria-hidden="true" />新聊天</button>
         </div>
         <button v-if="desktopName" type="button" class="desktop-switch" :title="desktopName" :aria-expanded="!!devicePickerOpen" @click="emit('chooseDesktop')" aria-haspopup="dialog" aria-label="切换电脑">
           <Monitor aria-hidden="true" />
@@ -1625,7 +1672,7 @@ onUnmounted(() => {
         </div>
         <p v-if="currentCreation" class="muted small" role="status">聊天已创建，草稿已保留。 <button type="button" class="text-button" @click="restoreCreation(currentCreation)">查看原聊天</button></p>
         <p v-if="modelSelection.model || modelSelection.thinking" class="muted small" role="status">已选择下次发送的模型选项；发送后由桌面确认。</p>
-        <MessageQueue v-if="selectedId && capabilities.queue" :key="selectedId" :queue="queueState" :loading="queueLoading" :busy="queueBusy" :error="queueError" :actions="messageQueue" :compact="interactionState.expanded" :disabled="!capabilities.queue || sending || streamStatus !== 'connected'" @reload="messageQueue.reload" @expand="pendingPanel?.minimize()" />
+        <MessageQueue v-if="selectedId && capabilities.queue" :key="selectedId" :queue="queueState" :loading="queueLoading" :busy="queueBusy" :error="queueError" :actions="messageQueue" :capabilities="capabilities" :active="active" :compact="interactionState.expanded" :disabled="!capabilities.queue || sending || streamStatus !== 'connected'" @reload="messageQueue.reload" @expand="pendingPanel?.minimize()" />
         <PendingInteractions v-if="selectedId" ref="pendingPanel" :keyboard-open="keyboardOpen" :thread-id="selectedId" :interactions="interactions" :desktop-supported="!!capabilities.desktopNavigation" :disabled="!capabilities.interactions || streamStatus !== 'connected'" :unavailable-reason="!capabilities.interactions ? '当前连接不支持在手机回复此请求，请在电脑上的 Codex 处理。' : '连接恢复后可回复，已填写的答案会保留。'" @state="interactionState = $event" @expand="composer?.blur()" @desktop="openDesktop" />
         <Transition name="composer-notice">
           <div v-if="(visibleNotice || subagentInputRejected) && !interactionState.expanded" class="composer-notice" role="status">

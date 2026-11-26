@@ -117,7 +117,7 @@ impl Host {
         let error = self.service_error.read().await.clone();
         let relay = self.relay.status().await;
         Ok(
-            json!({"version":env!("CARGO_PKG_VERSION"),"service":{"running":app.is_some(),"error":error},"sync":sync,"runtime":runtime,"relay":relay,"config":self.config.read().await.clone(),"update":self.update_state.read().await.clone(),"updateSettings":self.updates.status()?,"release":self.updates.release.read().await.clone()}),
+            json!({"version":env!("CARGO_PKG_VERSION"),"service":{"running":app.is_some(),"error":error},"sync":sync,"runtime":runtime,"relay":relay,"config":self.config.read().await.clone(),"update":self.update_state.read().await.clone(),"updateSettings":self.updates.status(),"release":self.updates.release.read().await.clone()}),
         )
     }
     pub async fn save_config(self: &Arc<Self>, config: ServiceConfig) -> Result<()> {

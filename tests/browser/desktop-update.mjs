@@ -30,7 +30,7 @@ await context.addInitScript(() => {
     relay: { state: 'disabled', url: '', name: '', hasToken: false, linkExpiresAt: null, phones: [] },
     config: { port: 9989, bind: '127.0.0.1', publicUrl: '', autoStart: false },
     update: { phase: 'idle', message: '准备检查' },
-    updateSettings: { configured: false, source: null, version: '0.3.28', mode: 'automatic' }, release: null,
+    updateSettings: { version: '0.3.28', mode: 'automatic' }, release: null,
   };
   const fixture = window.updateFixture = { status, calls: [], resolve: null, reject: null };
   window.__TAURI_INTERNALS__ = { invoke: async command => {
@@ -53,6 +53,10 @@ try {
   await page.goto(origin);
   await page.locator('#open-settings').click();
   const check = page.locator('#check-update');
+  assert.equal(await page.locator('#update-settings, #token-form, #token-help').count(), 0);
+  assert.doesNotMatch(await page.locator('#preferences-dialog').innerText(), /GitHub token|更新来源/);
+  await page.screenshot({ path: path.join(output, 'desktop-public-update.png') });
+  results.push({ id: 'UPDATE-011', scenario: 'public-update-without-source-or-token-settings', status: 'passed' });
   await check.click();
   assert.equal(await check.isDisabled(), true);
   await check.evaluate(element => element.click());
@@ -104,6 +108,15 @@ try {
   assert.equal(await page.evaluate(() => window.updateFixture.calls.filter(value => value === 'check_update').length), 3);
   assert.equal(await page.locator('#update-status').innerText(), '当前已是最新正式版本。');
   results.push({ id: 'UPDATE-003', scenario: 'failure-releases-check-and-can-retry', status: 'passed' });
+  await page.evaluate(() => { window.updateFixture.status.updateSettings.mode = 'paused'; window.updateFixture.status.update.message = ''; });
+  await page.clock.runFor(2500);
+  assert.equal(await check.isEnabled(), true);
+  assert.equal(await page.locator('#update-status').innerText(), '自动升级已暂停，可手动检查更新。');
+  await page.evaluate(() => { window.updateFixture.status.updateSettings.mode = 'source'; });
+  await page.clock.runFor(2500);
+  assert.equal(await check.isDisabled(), true);
+  results.push({ id: 'UPDATE-003', scenario: 'paused-check-remains-available-source-check-disabled', status: 'passed' });
+
   assert.deepEqual(errors, [], '桌面更新页面不能产生未处理异常');
 } catch (error) {
   results.push({ status: 'failed', error: error.stack || String(error) });

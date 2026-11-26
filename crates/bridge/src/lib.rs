@@ -28,6 +28,9 @@ mod submissions;
 #[cfg(test)]
 extern crate self as codex_mobile_bridge;
 #[cfg(test)]
+#[path = "../tests/support/controls.rs"]
+mod control_regression;
+#[cfg(test)]
 #[path = "../tests/support/native_pipe.rs"]
 pub(crate) mod native_test_support;
 #[cfg(test)]

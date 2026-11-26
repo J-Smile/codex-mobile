@@ -28,6 +28,7 @@ pub struct NativePipe {
     pub hold_sends: AtomicBool,
     pub release_sends: Semaphore,
     pub send_reply: Mutex<Option<Value>>,
+    pub create_reply: Mutex<Option<Value>>,
     pub navigation_reply: Mutex<Value>,
     pub call_received: Notify,
     cancel: CancellationToken,
@@ -45,7 +46,7 @@ impl NativePipe {
             projects: Mutex::new(json!({"projects":[{"projectId":"project","projectKind":"local","hostId":"local","label":"隔离项目","path":"/fixture/project"}]})),
             hold_reads: AtomicBool::new(false), release_reads: Semaphore::new(0),
             hold_sends: AtomicBool::new(false), release_sends: Semaphore::new(0),
-            send_reply: Mutex::new(None), call_received: Notify::new(),
+            send_reply: Mutex::new(None), create_reply: Mutex::new(None), call_received: Notify::new(),
             navigation_reply: Mutex::new(json!({"navigated":true})),
             cancel: CancellationToken::new(),
         });
@@ -130,7 +131,12 @@ impl NativePipe {
             }
             "list_projects" => self.projects.lock().await.clone(),
             "list_threads" => json!({"threads":[],"nextCursor":null}),
-            "create_thread" => json!({"threadId":CREATED,"hostId":"local"}),
+            "create_thread" => {
+                if let Some(reply) = self.create_reply.lock().await.clone() {
+                    return reply;
+                }
+                json!({"threadId":CREATED,"hostId":"local"})
+            }
             "send_message_to_thread" => {
                 if self.hold_sends.load(Ordering::Acquire) {
                     self.release_sends.acquire().await.unwrap().forget();
