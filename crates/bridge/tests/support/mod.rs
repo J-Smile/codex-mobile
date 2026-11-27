@@ -301,7 +301,32 @@ impl MockDesktop {
             return Ok(None);
         }
         if method == "thread/goal/get" {
-            return Ok(Some(json!({"goal":null})));
+            return Ok(Some(
+                json!({"goal":self.threads.lock().await.get(params["threadId"].as_str().unwrap_or("chat")).map(|state| &state["goal"])}),
+            ));
+        }
+        if method == "thread/goal/set" || method == "thread/goal/clear" {
+            assert_eq!(params["origin"], "user");
+            let id = params["threadId"].as_str().unwrap();
+            let mut threads = self.threads.lock().await;
+            let state = threads.get_mut(id).ok_or("thread not found")?;
+            if method == "thread/goal/clear" {
+                state["goal"] = Value::Null;
+                let _ = self
+                    .broadcasts
+                    .send(json!({"method":"thread/goal/cleared","params":{"threadId":id}}));
+                return Ok(Some(json!({"cleared":true})));
+            }
+            if state["goal"].is_null() {
+                state["goal"] = json!({"threadId":id,"status":"active","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":1,"updatedAt":1});
+            }
+            for field in ["objective", "status", "tokenBudget"] {
+                if let Some(value) = params.get(field) {
+                    state["goal"][field] = value.clone();
+                }
+            }
+            let _ = self.broadcasts.send(json!({"method":"thread/goal/updated","params":{"threadId":id,"goal":state["goal"]}}));
+            return Ok(Some(json!({"goal":state["goal"]})));
         }
         if method == "thread/unsubscribe" {
             let gate = self.unsubscribe_gate.lock().await.clone();

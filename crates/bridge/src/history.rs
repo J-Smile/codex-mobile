@@ -233,12 +233,17 @@ impl History {
             .map(PathBuf::from))
     }
     pub fn metadata(&self, id: &str, include_mode: bool) -> Result<Value> {
-        let mut value=self.state()?.query_row("SELECT id,name,title,cwd,model,reasoning_effort,rollout_path,project_id,source,history_mode FROM threads WHERE id=?",[id],|row|{
+        let mut value=self.state()?.query_row("SELECT id,name,title,cwd,model,reasoning_effort,rollout_path,project_id,source,history_mode,COALESCE(archived,0) FROM threads WHERE id=?",[id],|row|{
             let name:Option<String>=row.get(1)?;let title:Option<String>=row.get(2)?;
-            Ok(json!({"id":row.get::<_,String>(0)?,"title":name.filter(|s|!s.is_empty()).or(title),"cwd":row.get::<_,String>(3)?,"model":row.get::<_,Option<String>>(4)?,"reasoningEffort":row.get::<_,Option<String>>(5)?,"rolloutPath":row.get::<_,Option<String>>(6)?,"projectId":row.get::<_,Option<String>>(7)?,"source":row.get::<_,Option<String>>(8)?,"historyMode":row.get::<_,Option<String>>(9)?}))
+            Ok(json!({"id":row.get::<_,String>(0)?,"title":name.filter(|s|!s.is_empty()).or(title),"cwd":row.get::<_,String>(3)?,"model":row.get::<_,Option<String>>(4)?,"reasoningEffort":row.get::<_,Option<String>>(5)?,"rolloutPath":row.get::<_,Option<String>>(6)?,"projectId":row.get::<_,Option<String>>(7)?,"source":row.get::<_,Option<String>>(8)?,"historyMode":row.get::<_,Option<String>>(9)?,"archived":row.get::<_,bool>(10)?}))
         }).optional()?.ok_or_else(||BridgeError::new(404,"找不到这条 Codex 聊天。"))?;
         let project = self.project_state()?;
         assign_project(&project, &mut value);
+        value["pinnedIndex"] = json!(project
+            .pins
+            .iter()
+            .position(|pin| pin == id)
+            .map(|index| index + 1));
         if include_mode {
             value["mode"] = json!(value["rolloutPath"]
                 .as_str()
@@ -311,7 +316,22 @@ impl History {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<Value> {
-        self.catalog_page(&self.project_state()?, project_id, query, cursor, limit)
+        self.catalog_page(
+            &self.project_state()?,
+            project_id,
+            query,
+            cursor,
+            limit,
+            false,
+        )
+    }
+    pub fn archived_catalog(
+        &self,
+        query: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<Value> {
+        self.catalog_page(&self.project_state()?, None, query, cursor, limit, true)
     }
     fn catalog_page(
         &self,
@@ -320,9 +340,10 @@ impl History {
         query: &str,
         cursor: Option<&str>,
         limit: usize,
+        archived: bool,
     ) -> Result<Value> {
         let mut clauses = vec![
-            "archived=0",
+            if archived { "archived=1" } else { "archived=0" },
             "source IN ('vscode','cli')",
             "(thread_source IN ('user','agent_created_thread') OR thread_source IS NULL)",
         ];
@@ -353,7 +374,10 @@ impl History {
                     .map_or(SqlValue::Null, SqlValue::Text),
             ]);
         }
-        let scope = json!([project_id.unwrap_or(""), project_path, query]).to_string();
+        let mut scope = json!([project_id.unwrap_or(""), project_path, query]).to_string();
+        if archived {
+            scope.push_str(":archived");
+        }
         if !query.is_empty() {
             clauses.push("COALESCE(NULLIF(name,''),title,'') LIKE ? ESCAPE '\\'");
             params.push(
@@ -392,6 +416,7 @@ impl History {
         rows.truncate(limit);
         for row in &mut rows {
             assign_project(state, row);
+            row["archived"] = json!(archived);
         }
         let next = rows
             .last()
@@ -401,7 +426,7 @@ impl History {
     }
     pub fn thread_list(&self, cursor: Option<&str>) -> Result<Value> {
         let state = self.project_state()?;
-        let page = self.catalog_page(&state, None, "", cursor, 50)?;
+        let page = self.catalog_page(&state, None, "", cursor, 50, false)?;
         let mut entries = IndexMap::<String, Value>::new();
         if cursor.is_none() && !state.pins.is_empty() {
             let pins = &state.pins;

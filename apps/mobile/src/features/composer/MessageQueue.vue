@@ -57,7 +57,7 @@ function toggle() {
           </div>
         </li>
       </ol>
-      <p class="muted small">队列由桌面执行。编辑、排序和立即发送请在桌面处理。</p>
+      <p class="muted small">队列由电脑继续执行，手机断开不影响已提交的任务。</p>
     </CollapseMotion>
   </section>
   <NativeSheet :open="!!editing" labelledby="queue-edit-title" @close="editing = undefined">

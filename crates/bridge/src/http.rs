@@ -646,7 +646,7 @@ impl Bridge {
                 200,
                 if route == "new-thread-settings" {
                     crate::config::new_thread_defaults(&self.paths.codex_home, cwd.as_deref())?
-                } else if !catalog {
+                } else if self.session.capabilities()["contextPlugins"] != true && !catalog {
                     crate::context::references(
                         cwd.as_deref(),
                         query.get("query").map(String::as_str).unwrap_or(""),
@@ -667,6 +667,16 @@ impl Bridge {
             let search = query.get("query").map(|s| s.trim()).unwrap_or("");
             if search.encode_utf16().count() > 200 {
                 return Err(BridgeError::invalid("搜索内容请控制在 200 字以内。"));
+            }
+            if query.get("archived").is_some_and(|value| value == "true") {
+                return Ok(json_response(
+                    200,
+                    self.history.archived_catalog(
+                        search,
+                        query.get("cursor").map(String::as_str),
+                        30,
+                    )?,
+                ));
             }
             if self.session.capabilities()["catalog"] != true {
                 let mut page = self.history.catalog(
@@ -728,6 +738,18 @@ impl Bridge {
         }
         let id = &parts[2];
         let operation = parts[3].as_str();
+        if operation == "manage"
+            && method == Method::POST
+            && query.get("action").is_some_and(|action| action == "delete")
+        {
+            self.session.require("threadDelete")?;
+            return Ok(json_response(
+                200,
+                self.submissions
+                    .delete_thread(operation_owner, id, body(request).await?)
+                    .await?,
+            ));
+        }
         if operation == "messages" && method == Method::POST {
             self.session.require("send")?;
             let input = body(request).await.map_err(BridgeError::before_send)?;
@@ -756,6 +778,13 @@ impl Bridge {
                 "interactions" => "interactions",
                 "goal" => "goals",
                 "open" => "desktopNavigation",
+                "manage" => match query.get("action").map(String::as_str) {
+                    Some("rename") => "threadRename",
+                    Some("pin") => "threadPin",
+                    Some("archive") => "threadArchive",
+                    Some("delete") => "threadDelete",
+                    _ => "unsupported",
+                },
                 _ => "unsupported",
             };
             self.session.require(capability)?;
@@ -811,6 +840,16 @@ impl Bridge {
             ));
         }
         match (operation, method) {
+            ("manage", Method::POST) => Ok(json_response(
+                200,
+                self.desktop
+                    .manage_thread(
+                        id,
+                        query.get("action").map(String::as_str).unwrap_or(""),
+                        body(request).await?,
+                    )
+                    .await?,
+            )),
             ("history", Method::GET) => Ok(json_response(
                 200,
                 self.enrich(
@@ -986,6 +1025,11 @@ impl Bridge {
     }
     async fn enrich(&self, id: &str, mut snapshot: Value, view: &LiveView) -> Value {
         snapshot["capabilities"] = self.session.capabilities();
+        if let Ok(metadata) = self.history.metadata(id, false) {
+            for field in ["archived", "pinnedIndex"] {
+                snapshot["thread"][field] = metadata[field].clone();
+            }
+        }
         if snapshot["syncMode"] == "desktop-poll" {
             for capability in [
                 "queue",
@@ -994,6 +1038,9 @@ impl Bridge {
                 "queueReorder",
                 "interrupt",
                 "interactions",
+                "settings",
+                "goals",
+                "contextBrowser",
             ] {
                 snapshot["capabilities"][capability] = json!(false);
             }
@@ -1013,7 +1060,20 @@ impl Bridge {
         let observed = (snapshot["syncMode"] == "desktop-poll")
             .then(|| snapshot["firstTurnObserved"].as_str())
             .flatten();
-        match self.submissions.operations.creation_pending(id, observed) {
+        let mut pending = self.submissions.operations.creation_pending(id, observed);
+        if matches!(pending, Ok(true))
+            && snapshot["connection"] == "live"
+            && snapshot["syncMode"] != "desktop-poll"
+        {
+            pending = match self.desktop.creation_turn(id).await {
+                Ok(turn) => self
+                    .submissions
+                    .operations
+                    .creation_pending(id, turn.as_str()),
+                Err(error) => Err(error),
+            };
+        }
+        match pending {
             Ok(pending) => {
                 snapshot["firstTurnPending"] = json!(pending);
                 if pending {
@@ -1021,6 +1081,7 @@ impl Bridge {
                 }
             }
             Err(error) => {
+                snapshot["firstTurnPending"] = json!(true);
                 snapshot["capabilities"]["send"] = json!(false);
                 snapshot["syncError"] = json!(error.message);
             }
@@ -1191,7 +1252,7 @@ impl Bridge {
                 let changed=tokio::select!{
                     _=this.streams.cancelled()=>break,_=sender.closed()=>break,_=rotations.recv()=>break,
                     connected=reconnects.recv()=>{if connected.is_ok(){let goals=this.goals.clone();let id=thread.clone();this.spawn_work(async move{let _=goals.request(&id,"thread/goal/get",json!({})).await;});}false},
-                    _=heartbeat.tick()=>{if sender.send(Ok(event("heartbeat",&json!({})))).await.is_err(){break;}false},
+                    _=heartbeat.tick()=>{if sender.send(Ok(event("heartbeat",&json!({})))).await.is_err(){break;}previous["firstTurnPending"]==true},
                     changed=live.changed()=>{if changed.is_err(){break;}true},
                     changed=changes.recv()=>changed.is_ok_and(|id|id==thread),
                 };

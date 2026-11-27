@@ -87,7 +87,7 @@ impl Operations {
         } else {
             false
         };
-        if matches!(kind, "reply" | "continue") {
+        if matches!(kind, "reply" | "continue" | "thread-delete") {
             let handled: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM operations WHERE kind=? AND target=? AND owner<>? AND phase IN ('dispatching','unknown','accepted'))", params![kind,target,owner], |row| row.get(0))?;
             if handled {
                 return Err(BridgeError::new(
@@ -115,7 +115,7 @@ impl Operations {
     pub fn finish(&self, owner: &str, id: &str, result: &Result<Value>) -> Result<()> {
         // 只保存必要的回执，不落提示词、附件或完整轮次内容。
         let (phase, receipt, status) = match result {
-            Ok(value) => ("accepted", Some(json!({"status":value["status"],"messageId":value["messageId"],"threadId":value["threadId"],"turnId":value["turn"]["id"],"firstTurnAccepted":value["firstTurnAccepted"],"firstTurnPending":value["firstTurnPending"],"execution":value["execution"],"resolved":value["resolved"],"deliveryStatus":value["deliveryStatus"],"accepted":value["status"]!="created"}).to_string()), None),
+            Ok(value) => ("accepted", Some(json!({"status":value["status"],"messageId":value["messageId"],"threadId":value["threadId"],"deleted":value["deleted"],"turnId":value["turn"]["id"],"firstTurnAccepted":value["firstTurnAccepted"],"firstTurnPending":value["firstTurnPending"],"execution":value["execution"],"resolved":value["resolved"],"deliveryStatus":value["deliveryStatus"],"accepted":value["status"]!="created"}).to_string()), None),
             Err(error) if error.before_send => ("not-dispatched", None, Some(error.status)),
             Err(error) => ("unknown", None, Some(error.status)),
         };

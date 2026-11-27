@@ -106,6 +106,12 @@ export function useThreadCatalog(options: { authenticated: () => boolean; expire
     if (historical) Object.assign(historical, thread);
   }
 
+  function removeCatalogThread(id: string) {
+    cancelRequests();
+    threads.value = threads.value.filter(thread => thread.id !== id);
+    projectHistory.value = projectHistory.value.filter(thread => thread.id !== id);
+  }
+
   function loadThreads(): Promise<void> {
     if (threadRequest) return threadRequest;
     if (!options.authenticated() || disposed) return Promise.resolve();
@@ -197,6 +203,6 @@ export function useThreadCatalog(options: { authenticated: () => boolean; expire
   });
   return {
     threads, projects, knownThreads, latestByProject, loadingThreads, loadingProjects, error, loadThreads, refresh,
-    hasMoreProjectHistory, loadingProjectHistory, projectHistoryError, loadProjectHistory, updateCatalogThread,
+    hasMoreProjectHistory, loadingProjectHistory, projectHistoryError, loadProjectHistory, updateCatalogThread, removeCatalogThread,
   };
 }

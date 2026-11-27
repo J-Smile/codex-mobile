@@ -195,6 +195,43 @@ pub(crate) fn navigation_supported(catalog: &Value) -> bool {
     })
 }
 
+pub(crate) fn management_supported(catalog: &Value, name: &str) -> bool {
+    let required: &[&str] = match name {
+        "set_thread_title" => &["title"],
+        "set_thread_pinned" => &["threadId", "pinned"],
+        "set_thread_archived" => &["archived"],
+        _ => &["threadId"],
+    };
+    let fields: &[(&str, &str)] = match name {
+        "set_thread_title" => &[("threadId", "string"), ("title", "string")],
+        "set_thread_pinned" => &[("threadId", "string"), ("pinned", "boolean")],
+        "set_thread_archived" => &[("threadId", "string"), ("archived", "boolean")],
+        "delete_thread" => &[("threadId", "string")],
+        _ => return false,
+    };
+    catalog["tools"].as_array().is_some_and(|tools| {
+        tools.iter().any(|tool| {
+            let schema = &tool["inputSchema"];
+            tool["namespace"] == "codex_app"
+                && tool["name"] == name
+                && schema["type"] == "object"
+                && schema["additionalProperties"] == false
+                && fields
+                    .iter()
+                    .all(|(field, kind)| schema["properties"][*field]["type"] == *kind)
+                && schema["properties"]["source"]["enum"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().any(|value| value == "codex"))
+                && schema["required"].as_array().is_some_and(|actual| {
+                    actual.len() == required.len()
+                        && required
+                            .iter()
+                            .all(|field| actual.iter().any(|value| value == field))
+                })
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

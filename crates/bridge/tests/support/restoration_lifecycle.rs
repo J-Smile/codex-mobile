@@ -79,6 +79,61 @@ async fn lookup(server: &Server, client: &Client, cookie: &str, id: &str) -> Val
     response.json::<Value>().await.unwrap()["results"][0].clone()
 }
 
+#[tokio::test]
+async fn native_thread_management_checks_receipts_and_deletes_once() {
+    let f = Fixture::new();
+    let (server, peer, _, client, cookie) = start(&f).await;
+    for (action, input, field) in [
+        ("rename", json!({"title":"手机重命名"}), "title"),
+        ("pin", json!({"pinned":true}), "pinned"),
+        ("pin", json!({"pinned":false}), "pinned"),
+        ("archive", json!({"archived":true}), "archived"),
+        ("archive", json!({"archived":false}), "archived"),
+    ] {
+        let (status, value) = result(
+            post(
+                &server,
+                &client,
+                &cookie,
+                &format!("threads/{CHAT}/manage?action={action}"),
+            )
+            .json(&input),
+        )
+        .await;
+        assert_eq!(status, 200, "{value}");
+        assert_eq!(value[field], input[field]);
+    }
+    let path = format!("threads/{CHAT}/manage?action=delete");
+    let (status, _) = result(post(&server, &client, &cookie, &path).json(&json!({}))).await;
+    assert_eq!(status, 400);
+    for _ in 0..2 {
+        let (status, value) = result(
+            post(&server, &client, &cookie, &path).json(&json!({"confirm":"delete-thread"})),
+        )
+        .await;
+        assert_eq!(status, 200, "{value}");
+        assert_eq!(value["deleted"], true);
+    }
+    assert_eq!(
+        peer.calls
+            .lock()
+            .await
+            .iter()
+            .filter(|call| call["params"]["tool"] == "delete_thread")
+            .count(),
+        1
+    );
+    for call in peer.calls.lock().await.iter().filter(|call| {
+        call["params"]["tool"]
+            .as_str()
+            .is_some_and(|tool| tool.starts_with("set_thread") || tool == "delete_thread")
+    }) {
+        assert_eq!(call["params"]["arguments"]["threadId"], CHAT);
+        assert_eq!(call["params"]["arguments"]["source"], "codex");
+    }
+    server.stop().await.unwrap();
+}
+
 async fn next_snapshot<S>(stream: &mut S, buffer: &mut String) -> Value
 where
     S: Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>> + Unpin,
@@ -509,8 +564,17 @@ async fn http_submission_preflight_failures_never_dispatch_or_become_unknown() {
 // READ-007、SEND-002：首轮从未确认转为已观察，HTTP SSE发布完整快照且不重复创建。
 #[tokio::test]
 async fn http_first_turn_confirmation_publishes_snapshot_without_creating_twice() {
+    first_turn_confirmation(false).await;
+}
+
+#[tokio::test]
+async fn http_shared_first_turn_confirmation_preserves_creation_and_enables_goals() {
+    first_turn_confirmation(true).await;
+}
+
+async fn first_turn_confirmation(shared: bool) {
     let fixture = Fixture::new();
-    let (server, peer, _, client, cookie) = start(&fixture).await;
+    let (server, peer, official, client, cookie) = start(&fixture).await;
     let input = json!({"prompt":"合成首轮","requestId":"first-turn-create-001","sourceThreadId":CHAT,"projectId":"project"});
     let (status, created) = result(post(&server, &client, &cookie, "threads").json(&input)).await;
     assert_eq!(status, 200, "{created}");
@@ -528,6 +592,24 @@ async fn http_first_turn_confirmation_publishes_snapshot_without_creating_twice(
     .await;
     assert_eq!(status, 503);
     assert_eq!(blocked["outcome"], "not-dispatched");
+    let control = if shared {
+        let mock = crate::test_support::MockDesktop::start_control_fixture(&fixture).await;
+        let mut state = crate::test_support::official_thread(CREATED, false);
+        // 共享快照已有轮次仍须等官方 App Tools 首轮确认。
+        state["thread"]["turns"] = json!([
+            {"id":"native-first-turn","status":"inProgress","startedAt":1_795_579_200,"items":[]}
+        ]);
+        mock.set_thread(CREATED, state).await;
+        let session = crate::session::Session::new(fixture.paths.clone());
+        session.enable_shared_fixture();
+        let connection = session.connect().await.unwrap();
+        connection.bind_official(official).unwrap();
+        server.app.session.enable_shared_fixture();
+        server.app.session.install_native(connection);
+        Some(mock)
+    } else {
+        None
+    };
     let response = client
         .get(format!(
             "http://{}/api/threads/{CREATED}/events",
@@ -543,13 +625,26 @@ async fn http_first_turn_confirmation_publishes_snapshot_without_creating_twice(
     let first = next_snapshot(&mut stream, &mut buffer).await;
     assert_eq!(first["firstTurnPending"], true);
     assert_eq!(first["capabilities"]["send"], false);
+    if shared {
+        assert_ne!(first["syncMode"], "desktop-poll");
+    }
     peer.reads.lock().await.get_mut(CREATED).unwrap()["turns"] = json!([
         {"id":"native-first-turn","status":"inProgress","startedAt":1_795_579_200,"items":[]}
     ]);
+    if let Some(control) = &control {
+        let _ = control
+            .broadcasts
+            .send(json!({"method":"thread/name/updated","params":{
+                "threadId":CREATED,"threadName":"首轮确认验收"
+            }}));
+    }
     let confirmed = next_snapshot(&mut stream, &mut buffer).await;
     assert_eq!(confirmed["firstTurnPending"], false);
     assert_eq!(confirmed["capabilities"]["send"], true);
     assert_eq!(confirmed["turns"][0]["id"], "native-first-turn");
+    if shared {
+        assert_eq!(confirmed["capabilities"]["goals"], true);
+    }
     let receipt = lookup(&server, &client, &cookie, "first-turn-create-001").await;
     assert_eq!(receipt["receipt"]["firstTurnAccepted"], true);
     assert_eq!(receipt["receipt"]["firstTurnId"], "native-first-turn");
@@ -870,7 +965,7 @@ async fn http_context_references_preserve_auth_source_and_project_boundaries() {
         let (status, value) =
             result(client.get(&url).header("cookie", &cookie).query(&params)).await;
         assert_eq!(status, 200, "{value}");
-        assert_eq!(value["mode"], "references");
+        assert_eq!(value["mode"], "context");
         assert_eq!(value["plugins"], json!([]));
         assert_eq!(value["browserTabs"], json!([]));
         assert_eq!(value["files"].as_array().unwrap().len(), 1);

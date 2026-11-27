@@ -8,6 +8,163 @@ use crate::{
 use serde_json::{json, Value};
 use std::{os::windows::io::AsRawHandle, path::PathBuf, time::Duration};
 
+#[tokio::test]
+#[ignore = "仅在明确授权的隔离官方验收聊天验证设置、目标和可逆管理；不删除聊天、不批准业务"]
+async fn official_feature_http_settings_goals_and_management() {
+    let artifact = PathBuf::from(std::env::var_os("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
+    let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap();
+    assert!(uuid::Uuid::parse_str(&thread).is_ok());
+    let data = artifact.join(format!("features-http-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&data).unwrap();
+    let app = Bridge::open(
+        Paths {
+            codex_home: dirs::home_dir().unwrap().join(".codex"),
+            runtime_home: artifact.join("broker-runtime"),
+            data_home: data,
+            web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
+        },
+        ServiceConfig {
+            port: 0,
+            bind: "127.0.0.1".into(),
+            ..Default::default()
+        },
+        false,
+    )
+    .unwrap();
+    app.session.connect().await.unwrap();
+    let server = app.start().await.unwrap();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let response = client
+        .post(format!("http://{}/api/login", server.address))
+        .json(&json!({"accessKey":server.app.auth.lock().await.key()}))
+        .send()
+        .await
+        .unwrap();
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let _events = server.app.desktop.subscribe(&thread);
+    let initial = server.app.desktop.snapshot(&thread).await.unwrap();
+    assert_eq!(initial["thread"]["title"], "Mobile 连接验收");
+    let baseline = request(
+        &server,
+        &client,
+        &cookie,
+        reqwest::Method::GET,
+        "settings",
+        json!({}),
+    )
+    .await;
+    let initial_goal = request(
+        &server,
+        &client,
+        &cookie,
+        reqwest::Method::GET,
+        "goal",
+        json!({}),
+    )
+    .await;
+    assert!(initial_goal["goal"].is_null());
+    for permission in ["read-only", "workspace-write", "full-access"] {
+        let result = request(
+            &server,
+            &client,
+            &cookie,
+            reqwest::Method::POST,
+            "settings",
+            json!({"permissions":permission}),
+        )
+        .await;
+        assert_eq!(result["permissions"]["mode"], permission);
+        assert_eq!(result["model"], baseline["model"]);
+    }
+    request(
+        &server,
+        &client,
+        &cookie,
+        reqwest::Method::POST,
+        "settings",
+        json!({"permissions":baseline["permissions"]["mode"]}),
+    )
+    .await;
+    for mode in ["plan", "default"] {
+        let result = request(
+            &server,
+            &client,
+            &cookie,
+            reqwest::Method::POST,
+            "settings",
+            json!({"mode":mode}),
+        )
+        .await;
+        assert_eq!(result["mode"], mode);
+        assert_eq!(result["model"], baseline["model"]);
+    }
+    request(
+        &server,
+        &client,
+        &cookie,
+        reqwest::Method::POST,
+        "settings",
+        json!({"mode":baseline["mode"]}),
+    )
+    .await;
+    for input in [
+        json!({"objective":"手机目标接口合成验收，保持空闲，不执行任何任务。","tokenBudget":7000,"status":"paused"}),
+        json!({"tokenBudget":8000}),
+        json!({"status":"active"}),
+        json!({"status":"paused"}),
+        json!({"tokenBudget":null}),
+    ] {
+        let state = request(
+            &server,
+            &client,
+            &cookie,
+            reqwest::Method::PATCH,
+            "goal",
+            input.clone(),
+        )
+        .await;
+        for (key, value) in input.as_object().unwrap() {
+            assert_eq!(&state["goal"][key], value);
+        }
+    }
+    let state = request(
+        &server,
+        &client,
+        &cookie,
+        reqwest::Method::DELETE,
+        "goal",
+        json!({}),
+    )
+    .await;
+    assert!(state["goal"].is_null());
+    for (action, input, field) in [
+        ("rename", json!({"title":"Mobile 连接验收"}), "title"),
+        ("pin", json!({"pinned":true}), "pinned"),
+        ("pin", json!({"pinned":false}), "pinned"),
+        ("archive", json!({"archived":true}), "archived"),
+        ("archive", json!({"archived":false}), "archived"),
+    ] {
+        let result = request(
+            &server,
+            &client,
+            &cookie,
+            reqwest::Method::POST,
+            &format!("manage?action={action}"),
+            input.clone(),
+        )
+        .await;
+        assert_eq!(result[field], input[field]);
+    }
+    std::fs::write(artifact.join("official-features-http.json"),serde_json::to_vec_pretty(&json!({"settings":true,"goals":true,"rename":true,"pin":true,"archiveRestore":true,"delete":"synthetic-only","browser":"isolated desktop access denied"})).unwrap()).unwrap();
+    server.stop().await.unwrap();
+}
+
 async fn request(
     server: &Server,
     client: &reqwest::Client,

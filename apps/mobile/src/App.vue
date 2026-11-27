@@ -13,6 +13,7 @@ import CollapseMotion from './components/CollapseMotion.vue';
 import PlainTextInput from './features/composer/PlainTextInput.vue';
 import UsagePanel from './features/usage/UsagePanel.vue';
 import ThreadBrowser from './features/threads/ThreadBrowser.vue';
+import ThreadManagement from './features/threads/ThreadManagement.vue';
 import GoalPanel from './features/goals/GoalPanel.vue';
 import { goalStatusLabels, type GoalInput, type GoalState } from './features/goals/goals';
 import { preloadMarkdownPreview } from './features/conversation/preview/markdownPreview';
@@ -65,7 +66,7 @@ const loginFailureStatus = ref<number | null>(null);
 const serviceUnavailable = computed(() => loginFailureStatus.value === 0);
 const {
   threads, projects, knownThreads, latestByProject, loadingThreads, loadingProjects, error: catalogError,
-  loadThreads, refresh: refreshCatalog, hasMoreProjectHistory, loadingProjectHistory, projectHistoryError, loadProjectHistory, updateCatalogThread,
+  loadThreads, refresh: refreshCatalog, hasMoreProjectHistory, loadingProjectHistory, projectHistoryError, loadProjectHistory, updateCatalogThread, removeCatalogThread,
 } = useThreadCatalog({
   authenticated: () => authenticated.value,
   expired: expireConnection,
@@ -93,6 +94,8 @@ const view = computed(() => usageOpen.value ? 'usage' : !navigationOpen.value &&
 const projectPickerOpen = ref(false);
 const projectsExpanded = ref(true);
 const catalogScope = ref<Project | null>();
+const archivedCatalog = ref(false);
+const managementOpen = ref(false);
 let catalogTrigger: HTMLElement | undefined;
 const navigationScroll = ref<HTMLElement>();
 const projectsToggle = ref<HTMLButtonElement>();
@@ -298,12 +301,70 @@ async function changeMode(mode: 'default' | 'plan') {
   if (modeBusy.value || !selectedId.value || streamStatus.value !== 'connected') return;
   const thread = selectedId.value;
   modeBusy.value = true;
-  try { await request(threadUrl(thread, 'settings'), { method: 'POST', body: JSON.stringify({ mode }) }); }
+  try {
+    const result = await request<{ applied: boolean; mode: string }>(threadUrl(thread, 'settings'), { method: 'POST', body: JSON.stringify({ mode }) });
+    if (!result.applied || result.mode !== mode) throw new Error('模式尚未确认，请重新读取聊天。');
+    if (selectedThread.value?.id === thread) updateThread({ ...selectedThread.value, mode });
+  }
   catch (failure) { if (selectedId.value === thread) error.value = (failure as Error).message; }
   finally { modeBusy.value = false; }
 }
 
-async function createGoal(_input: GoalInput): Promise<void> { throw new Error('请在官方 Codex 创建和设置目标；当前草稿保留。'); }
+async function createGoal(input: GoalInput, onCreated?: (threadId: string) => void): Promise<void> {
+  if (!capabilities.value.goals) throw new Error('请在官方 Codex 创建和设置目标；当前草稿保留。');
+  const reason = submissionReason(true);
+  if (reason) throw new Error(reason);
+  if (!newChat.value) throw new Error('请先打开需要设置目标的聊天。');
+  const target = draftKey.value;
+  const originalDraft = draft.value;
+  const prompt = composeDraftContext(draftParts.value.contexts, `请准备完成以下目标，等我设置目标与预算后再开始：\n${input.objective}`);
+  const images = attachments.readyImages().map(image => image.id);
+  const selection = modelSelection.value;
+  const { result, requestId } = await submissions.submit<{ threadId: string; firstTurnAccepted: boolean }>({
+    target, kind: 'create', url: '/api/threads',
+    input: { sourceThreadId: creationSource.value, projectId: selectedProjectId.value, prompt, images, ...selection },
+  });
+  if (draftKey.value === target && newChat.value) {
+    onCreated?.(result.threadId);
+    const operation = recoveredCreations.value.find(value => value.id === requestId);
+    if (operation) restoreCreation(operation);
+    goalOpen.value = true;
+  }
+  if (selectedId.value !== result.threadId) throw new Error('聊天已创建，请打开原聊天后设置目标；当前页面不会被覆盖。');
+  if (firstTurnPending.value || !capabilities.value.goals) {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => { stop(); reject(new Error('聊天已创建，首轮或目标连接仍在确认。请在此聊天重试设置目标。')); }, 60_000);
+      const stop = watch([selectedId, firstTurnPending, capabilities, authenticated], () => {
+        if (selectedId.value !== result.threadId || !authenticated.value) {
+          clearTimeout(timeout); stop(); reject(new Error('已离开原聊天，目标尚未设置。'));
+        } else if (!firstTurnPending.value && capabilities.value.goals) {
+          clearTimeout(timeout); stop(); resolve();
+        }
+      });
+    });
+  }
+  const state = await request<GoalState>(threadUrl(result.threadId, 'goal'), { method: 'PATCH', body: JSON.stringify({ ...input, status: 'active' }) });
+  applyGoal({ threadId: result.threadId, ...state });
+  if (drafts[target] === originalDraft) drafts[target] = '';
+  attachments.clear(target, images);
+  if (modelDrafts[target] === selection) delete modelDrafts[target];
+}
+
+function managedThread(result: { threadId: string; title?: string; pinned?: boolean; archived?: boolean; deleted?: boolean }) {
+  if (result.deleted || result.archived) removeCatalogThread(result.threadId);
+  const current = selectedThread.value;
+  if (current?.id === result.threadId) {
+    if (result.deleted || result.archived) {
+      openProjects();
+      selectedId.value = '';
+      selectedThread.value = null;
+      updateAddress('');
+    } else updateThread({ ...current, ...(result.title !== undefined ? { title: result.title } : {}),
+      ...(result.pinned !== undefined ? { pinnedIndex: result.pinned ? 1 : undefined } : {}),
+      ...(result.archived !== undefined ? { archived: result.archived } : {}) });
+  }
+  void refreshCatalog();
+}
 
 function restoreComposerFocus() {
   if (view.value === 'chat' && !interactionState.value.expanded) {
@@ -469,10 +530,11 @@ watchEffect(cleanup => {
   cleanup(() => clearTimeout(timer));
 });
 
-function browseThreads(project: Project | null = null) {
+function browseThreads(project: Project | null = null, archived = false) {
   if (document.activeElement instanceof HTMLButtonElement) catalogTrigger = document.activeElement;
   searchInput.value?.blur();
   catalogScope.value = project;
+  archivedCatalog.value = archived;
 }
 function toggleSearch() {
   searchOpen.value = !searchOpen.value;
@@ -925,12 +987,12 @@ function applySnapshot(snapshot: StreamSnapshot) {
   interactions.value = snapshot.interactions || [];
   capabilities.value = snapshot.capabilities || {};
   if (snapshot.firstTurnPending !== undefined) firstTurnPending.value = snapshot.firstTurnPending;
-  if (snapshot.firstTurnPending === false && snapshot.syncMode === 'desktop-poll') {
+  if (snapshot.firstTurnPending === false) {
     for (const operation of submissions.recoveredCreations.value.filter(value => value.receipt?.threadId === snapshot.thread.id)) {
       submissions.acknowledgeCreation(operation);
     }
   }
-  if (snapshot.firstTurnPending === false && createdDraft.value?.threadId === snapshot.thread.id && snapshot.syncMode === 'desktop-poll') {
+  if (snapshot.firstTurnPending === false && createdDraft.value?.threadId === snapshot.thread.id) {
     const sent = createdDraft.value;
     if (drafts[sent.key] === sent.prompt) drafts[sent.key] = '';
     attachments.clear(sent.key, sent.images);
@@ -1153,7 +1215,7 @@ async function sendMessage(prompt: string, mode: MessageMode, images: UploadedIm
 }
 
 function openDelegation() {
-  if (!capabilities.value.send || capabilities.value.native) return;
+  if (!capabilities.value.send || !capabilities.value.delegation) return;
   composerMenu.value = false;
   delegationSource.value = draft.value;
   delegationError.value = '';
@@ -1198,6 +1260,7 @@ function closeDelegation() {
 }
 
 async function delegate(request: DelegationRequest) {
+  if (!capabilities.value.delegation) return;
   const reason = submissionReason(!!request.prompt.trim());
   if (reason) { delegationError.value = reason; return; }
   const threadId = selectedId.value;
@@ -1489,7 +1552,7 @@ onUnmounted(() => {
   <div v-else ref="shell" :class="['app-shell', { 'show-chat': view === 'chat', 'usage-visible': usagePresented, 'usage-from-projects': usagePresented && !usageReturnToChat, 'has-conversation': selectedId || newChat }]" @scroll.passive="onNavigationScroll" @scrollend.passive="onNavigationScrollEnd" @pointerdown.passive="onNavigationPointerDown" @touchstart.passive="onBackSwipeStart" @touchend="onBackSwipeEnd" @touchcancel.passive="onNavigationTouchEnd" @keydown.esc="composerMenu = false; chatMenu = false">
     <UsagePanel ref="usagePanel" :visible="usageOpen" :initial-thread-id="usageThreadId" :initial-title="usageThreadTitle" :return-to-chat="usageReturnToChat" @back="closeUsage" @expired="expireConnection" />
     <aside class="navigation-pane" :inert="view !== 'projects'">
-      <Transition name="catalog-view" @before-leave="element => (element as HTMLElement).inert = true"><ThreadBrowser v-if="catalogScope !== undefined" :key="catalogScope?.projectId || 'all'" :project="catalogScope" :initial-query="search" @back="closeCatalog" @select="openThread" /></Transition>
+      <Transition name="catalog-view" @before-leave="element => (element as HTMLElement).inert = true"><ThreadBrowser v-if="catalogScope !== undefined" :key="archivedCatalog ? 'archived' : catalogScope?.projectId || 'all'" :project="catalogScope" :archived="archivedCatalog" :initial-query="search" @back="closeCatalog" @select="openThread" /></Transition>
       <div v-show="catalogScope === undefined" class="navigation-content">
       <header class="navigation-header">
         <div class="navigation-toolbar">
@@ -1530,6 +1593,7 @@ onUnmounted(() => {
           <div class="work-heading">
             <h2 id="work-heading" class="list-heading">最近工作</h2>
             <button type="button" class="text-button work-history" @click="browseThreads()">{{ search.trim() ? '搜索全部聊天' : '查看全部聊天' }}<ArrowRight aria-hidden="true" /></button>
+            <button type="button" class="text-button work-history" @click="browseThreads(null, true)">已归档聊天<ArrowRight aria-hidden="true" /></button>
           </div>
           <AnimatePresence v-if="workThreads.length" as="nav" mode="popLayout" :initial="false" class="work-list" aria-labelledby="work-heading" @before-leave="leaveWorkThread">
             <motion.div v-for="thread in workThreads" :key="thread.id" class="work-thread-row" :initial="{ opacity: 0, y: reduceMotion ? 0 : 6 }" :animate="{ opacity: 1, y: 0 }" :exit="{ opacity: 0 }" :transition="controlSpring">
@@ -1622,6 +1686,7 @@ onUnmounted(() => {
         <Transition name="menu">
           <div v-show="chatMenu" class="composer-menu chat-menu" role="menu" aria-label="对话操作">
             <button type="button" role="menuitem" @click="openSettings($event, chatMenuTrigger)"><Setting />对话设置</button>
+            <button v-if="selectedId && (capabilities.threadRename || capabilities.threadPin || capabilities.threadArchive || capabilities.threadDelete)" type="button" role="menuitem" @click="managementOpen = true; chatMenu = false"><EditPen />管理聊天</button>
             <button v-if="selectedId" type="button" role="menuitem" @click="openUsage(true)"><Histogram />Token 用量<span class="menu-item-detail">此对话</span></button>
             <HookReview v-if="selectedId" :thread-id="selectedId" :desktop-supported="!!capabilities.desktopNavigation" @open="chatMenu = false" @after-close="restoreComposerFocus" />
             <button v-if="selectedId" type="button" role="menuitem" :disabled="!capabilities.desktopNavigation" @click="openDesktop(); chatMenu = false"><Connection />在电脑上打开</button>
@@ -1720,7 +1785,7 @@ onUnmounted(() => {
               <p class="composer-menu-heading">添加内容</p>
               <button type="button" role="menuitem" @click="pickImages"><Picture />添加照片</button>
               <button type="button" role="menuitem" :disabled="!capabilities.contextReferences && !capabilities.catalog" @click="openContext"><DocumentAdd />添加上下文</button>
-              <button v-if="selectedId && !capabilities.native" type="button" role="menuitem" :disabled="!capabilities.send || sending || imagesUploading || imageErrors || streamStatus !== 'connected'" @click="openDelegation"><Connection />交给子智能体</button>
+              <button v-if="selectedId && capabilities.delegation" type="button" role="menuitem" :disabled="!capabilities.send || sending || imagesUploading || imageErrors || streamStatus !== 'connected'" @click="openDelegation"><Connection />交给子智能体</button>
               <div class="composer-menu-divider"></div>
               <p class="composer-menu-heading">工作模式</p>
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'default'" :disabled="!capabilities.settings || !selectedId || sending || modeBusy || streamStatus !== 'connected'" @click="changeMode('default')"><EditPen /><span>执行</span><Check v-if="currentMode === 'default'" class="mode-check" /></button>
@@ -1735,9 +1800,10 @@ onUnmounted(() => {
         </div></div>
       </div>
     </section>
-    <AgentDelegation v-if="selectedId && capabilities.send && !capabilities.native" :open="delegationOpen" :targets="delegationTargets" :initial-task="splitDraftContext(delegationSource).text" :busy="sending" :error="delegationError" :unavailable="streamStatus !== 'connected' ? '连接恢复后可委派任务' : imagesUploading ? '图片上传完成后可委派任务' : imageErrors ? '请先重试或移除上传失败的图片' : ''" @submit="delegate" @close="closeDelegation" @after-close="restoreComposerFocus" />
+    <AgentDelegation v-if="selectedId && capabilities.send && capabilities.delegation" :open="delegationOpen" :targets="delegationTargets" :queue-supported="!!capabilities.queue" :initial-task="splitDraftContext(delegationSource).text" :busy="sending" :error="delegationError" :unavailable="streamStatus !== 'connected' ? '连接恢复后可委派任务' : imagesUploading ? '图片上传完成后可委派任务' : imageErrors ? '请先重试或移除上传失败的图片' : ''" @submit="delegate" @close="closeDelegation" @after-close="restoreComposerFocus" />
+    <ThreadManagement :open="managementOpen" :thread="selectedThread" :capabilities="capabilities" :connected="streamStatus === 'connected'" @close="managementOpen = false" @changed="managedThread" @after-close="restoreComposerFocus" />
     <ComposerContext :open="contextOpen && !!(capabilities.contextReferences || capabilities.catalog)" :thread-id="selectedId" :project-id="selectedProjectId" :source-thread-id="creationSource" :threads="threads" @close="closeContext" @select="insertContext" @after-close="restoreComposerFocus" />
-    <GoalPanel :open="goalOpen && !!capabilities.goals" :thread-id="selectedId" :goal="selectedThread?.goal" :completed-goal="selectedThread?.completedGoal" :initial-objective="draftParts.text" :create-goal="createGoal" @close="goalOpen = false" @changed="applyGoal" @after-close="restoreComposerFocus" />
+    <GoalPanel :open="goalOpen" :thread-id="selectedId" :goal="selectedThread?.goal" :completed-goal="selectedThread?.completedGoal" :initial-objective="draftParts.text" :create-goal="createGoal" @close="goalOpen = false" @changed="applyGoal" @after-close="restoreComposerFocus" />
     <NativeSheet :open="projectPickerOpen" labelledby="project-picker-title" panel-class="settings-modal workspace-sheet" @close="projectPickerOpen = false" @after-close="newChat && restoreComposerFocus()">
       <div class="modal-heading"><h2 id="project-picker-title">{{ creationSource ? '选择项目' : '选择来源聊天' }}</h2><button type="button" class="icon-button" aria-label="关闭新建选择" @click="projectPickerOpen = false"><Close aria-hidden="true" /></button></div>
       <p class="muted small">{{ creationSource ? '使用所选聊天的官方桌面入口，不创建控制聊天。' : '请选择来源聊天，再选择官方项目。不会自动借用历史聊天。' }}</p>

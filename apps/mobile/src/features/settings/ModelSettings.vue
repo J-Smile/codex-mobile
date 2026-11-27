@@ -20,12 +20,11 @@ const customModel = ref(false);
 const fieldsDisabled = computed(() => !loaded.value || loading.value || !props.connected);
 const inheritLabel = computed(() => props.newThread ? '桌面默认' : '沿用当前对话');
 const modelName = (value: string) => value.replace(/^gpt-/, '').replace(/(^|[- ])([a-z])/g, (_, prefix, char) => (prefix ? ' ' : '') + char.toUpperCase());
-const modelLabel = computed(() => props.selection.model ? modelName(props.selection.model)
-  : props.newThread ? '桌面默认' : modelName(props.thread?.model || 'Codex'));
-const effortLabel = computed(() => {
-  const value = props.selection.thinking || (!props.newThread ? props.thread?.reasoningEffort : '') || '';
-  return value ? value[0]!.toUpperCase() + value.slice(1) : '';
-});
+const effortName = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+const currentModel = computed(() => props.newThread ? '' : props.thread?.model || '');
+const currentEffort = computed(() => props.newThread ? '' : props.thread?.reasoningEffort || '');
+const modelLabel = computed(() => modelName(props.selection.model || currentModel.value || (props.newThread ? '桌面默认' : 'Codex')));
+const effortLabel = computed(() => effortName(props.selection.thinking || currentEffort.value));
 let optionsRequest: AbortController | undefined;
 async function readOptions() {
   if (!open.value || !props.connected) return;
@@ -38,7 +37,7 @@ async function readOptions() {
   try {
     const data = await request<{ recentModels: string[]; efforts: string[] }>('/api/model-options', { signal: controller.signal });
     if (controller.signal.aborted) return;
-    recentModels.value = [...new Set([props.thread?.model, ...data.recentModels].filter((value): value is string => !!value))];
+    recentModels.value = [...new Set([currentModel.value, ...data.recentModels].filter((value): value is string => !!value))];
     efforts.value = data.efforts;
     customModel.value = !!model.value && !recentModels.value.includes(model.value);
     loaded.value = true;
@@ -77,7 +76,7 @@ function save() {
 </script>
 
 <template>
-  <button type="button" class="model-button" :disabled="!connected" aria-label="模型与思考强度" aria-haspopup="dialog" :aria-expanded="presented" :title="selection.model || (newThread ? '桌面默认' : thread?.model) || '模型与思考强度'" @click="open = true">
+  <button type="button" class="model-button" :disabled="!connected" aria-label="模型与思考强度" aria-haspopup="dialog" :aria-expanded="presented" :title="selection.model || currentModel || (newThread ? '桌面默认' : '模型与思考强度')" @click="open = true">
     <span class="model-name">{{ modelLabel }}</span><span class="model-effort">{{ effortLabel }}</span><ArrowDown />
   </button>
   <NativeSheet :open="open" labelledby="model-title" panel-class="settings-modal" @close="open = false" @after-close="presented = false">
@@ -85,14 +84,23 @@ function save() {
     <p class="model-settings-hint muted small">选择随下次消息发送；未选择的项目{{ newThread ? '使用桌面默认值' : '沿用当前对话' }}。</p>
     <form class="model-settings-form" :aria-busy="loading" @submit.prevent="save">
       <div class="model-settings-field">
-        <label for="chat-model">模型</label><select id="chat-model" :value="customModel ? '__custom__' : model" :disabled="fieldsDisabled" @change="chooseModel"><option value="">{{ inheritLabel }}</option><option v-for="entry in recentModels" :key="entry" :value="entry">{{ modelName(entry) }}</option><option value="__custom__">输入模型 ID…</option></select>
+        <label for="chat-model">模型</label>
+        <select id="chat-model" :value="customModel ? '__custom__' : model" :disabled="fieldsDisabled" @change="chooseModel">
+          <option value="">{{ currentModel ? modelName(currentModel) + '（当前）' : inheritLabel }}</option>
+          <option v-for="entry in recentModels" :key="entry" :value="entry">{{ modelName(entry) }}</option>
+          <option value="__custom__">输入模型 ID…</option>
+        </select>
         <p class="muted small">列表来自最近使用记录，是否可用由桌面在发送时确认。</p>
       </div>
       <div v-if="customModel" class="model-settings-field">
         <label for="custom-chat-model">模型 ID</label><input id="custom-chat-model" v-model="model" :disabled="fieldsDisabled" required maxlength="150" autocomplete="off" autocapitalize="none" spellcheck="false" />
       </div>
       <div class="model-settings-field">
-        <label for="chat-effort">思考强度</label><select id="chat-effort" v-model="effort" :disabled="fieldsDisabled"><option value="">{{ inheritLabel }}</option><option v-for="value in efforts" :key="value" :value="value">{{ value[0]!.toUpperCase() + value.slice(1) }}</option></select>
+        <label for="chat-effort">思考强度</label>
+        <select id="chat-effort" v-model="effort" :disabled="fieldsDisabled">
+          <option value="">{{ currentEffort ? effortName(currentEffort) + '（当前）' : inheritLabel }}</option>
+          <option v-for="value in efforts" :key="value" :value="value">{{ effortName(value) }}</option>
+        </select>
       </div>
       <p v-if="error" class="error-text" role="alert">{{ error }}</p>
       <p v-if="!connected" class="muted small" role="status">连接恢复后可选择模型。</p>

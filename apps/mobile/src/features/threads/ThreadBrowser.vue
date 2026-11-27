@@ -5,7 +5,7 @@ import { request } from '../../api';
 import type { DesktopThread, Project } from '../../types';
 import { threadActive } from './useThreadCatalog';
 
-const props = defineProps<{ project: Project | null; initialQuery?: string }>();
+const props = defineProps<{ project: Project | null; initialQuery?: string; archived?: boolean }>();
 const emit = defineEmits<{ back: []; select: [thread: DesktopThread] }>();
 const query = ref(props.initialQuery || '');
 const entries = ref<DesktopThread[]>([]);
@@ -15,7 +15,7 @@ const error = ref('');
 const retryFromStart = ref(true);
 const list = ref<HTMLElement>();
 const searchInput = ref<HTMLInputElement>();
-const title = computed(() => props.project?.label || '全部聊天');
+const title = computed(() => props.archived ? '已归档聊天' : props.project?.label || '全部聊天');
 const rowHeight = 52;
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -33,6 +33,7 @@ async function load(reset = false) {
   loading.value = true;
   error.value = '';
   const params = new URLSearchParams();
+  if (props.archived) params.set('archived', 'true');
   if (props.project) params.set('projectId', props.project.projectId);
   if (query.value.trim()) params.set('query', query.value.trim());
   if (!reset && nextCursor.value) params.set('cursor', nextCursor.value);

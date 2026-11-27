@@ -107,12 +107,21 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname.endsWith('/events')) {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
       const thread = url.pathname.includes('fixture-created')
-        ? { id: 'fixture-created', title: '已创建隔离聊天', projectId: project.projectId } : source;
+        ? { id: 'fixture-created', title: '已创建隔离聊天', projectId: project.projectId }
+        : scenario.currentModel ? { ...source, model: 'gpt-6.2-sol', reasoningEffort: 'xhigh' } : source;
       const interactions = scenario.question ? [{
         id: 'question', kind: 'questions', source: 'app-server', title: '隔离测试问题', replySupported: !scenario.readonlyQuestion,
         skipSupported: !scenario.readonlyQuestion, questions: [{ id: 'choice', question: '选择测试项', header: '测试', options: [{ label: '继续', description: '合成选项说明' }] }],
       }] : [];
-      const snapshot = { thread, turns: [], nextCursor: null, connection: scenario.historyOnly ? 'history' : 'live',
+      const turns = scenario.composerMenu ? [{
+        id: 'fixture-code-turn', status: 'completed', items: [{
+          id: 'fixture-code', type: 'agentMessage',
+          text: [...Array.from({ length: 36 }, (_, index) => '代码块之前的合成正文 ' + (index + 1)),
+            '```bash\nprintf "composer menu"\n```',
+            ...Array.from({ length: 36 }, (_, index) => '代码块之后的合成正文 ' + (index + 1))].join('\n\n'),
+        }],
+      }] : [];
+      const snapshot = { thread, turns, nextCursor: null, connection: scenario.historyOnly ? 'history' : 'live',
         capabilities: { ...currentCapabilities, ...(scenario.failedCreation && thread.id === 'fixture-created' ? { send: false } : {}) },
         syncMode: 'desktop-poll', firstTurnPending: !!(scenario.restoreCreation || scenario.failedCreation) && thread.id === 'fixture-created', interactions };
       response.write('event: snapshot\ndata: ' + JSON.stringify(snapshot) + '\n\n');
@@ -187,6 +196,61 @@ async function pageFor(viewport) {
   page.setDefaultTimeout(12_000);
   page.on('pageerror', error => pageErrors.push({ scenario: scenario.name, width: viewport.width, message: error.message }));
   return { context, page };
+}
+
+async function verifyComposerMenu(page) {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(origin + '/?thread=' + source.id);
+  const input = page.getByRole('textbox', { name: '消息内容' });
+  await input.fill('打开菜单时保留草稿');
+  await page.getByRole('button', { name: '更多操作', exact: true }).click();
+  const addPhoto = page.getByRole('menuitem', { name: '添加照片' });
+  const codeHeader = page.locator('.md-editor-code-head');
+  await codeHeader.waitFor({ state: 'attached' });
+  const photoBounds = await addPhoto.boundingBox();
+  const point = { x: photoBounds.x + photoBounds.width / 2, y: photoBounds.y + photoBounds.height / 2 };
+  await codeHeader.evaluate((header, point) => {
+    const scroller = header.closest('.conversation-scroll');
+    const codeBlock = header.closest('.md-editor-code');
+    scroller.scrollTop += codeBlock.getBoundingClientRect().top + header.offsetHeight / 2 - point.y;
+  }, point);
+  const layers = await page.evaluate(point => {
+    const elements = document.elementsFromPoint(point.x, point.y);
+    return { includesHeader: elements.some(element => element.closest('.md-editor-code-head')),
+      menuOnTop: !!elements[0]?.closest('#composer-menu') };
+  }, point);
+  assert.ok(layers.includesHeader, '测试点必须实际与代码块标题重叠');
+  assert.ok(layers.menuOnTop, '重叠处的点击必须由添加内容菜单接收');
+  await page.screenshot({ path: path.join(output, 'composer-menu-open-' + scenario.width + '.png') });
+  const [picker] = await Promise.all([page.waitForEvent('filechooser'), addPhoto.click()]);
+  await picker.setFiles([]);
+  assert.equal(await input.innerText(), '打开菜单时保留草稿');
+}
+
+async function verifyCurrentModel(page) {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(origin + '/?thread=' + source.id);
+  const settings = page.getByRole('button', { name: '模型与思考强度', exact: true });
+  await settings.click();
+  const model = page.getByLabel('模型', { exact: true });
+  const effort = page.getByLabel('思考强度', { exact: true });
+  const modelChoice = await model.locator('option:checked').textContent();
+  const effortChoice = await effort.locator('option:checked').textContent();
+  assert.deepEqual([modelChoice, effortChoice], ['6.2 Sol（当前）', 'Xhigh（当前）']);
+  assert.deepEqual([await model.inputValue(), await effort.inputValue()], ['', '']);
+  const dialog = page.locator('dialog[open].sheet-ready');
+  await dialog.screenshot({ path: path.join(output, 'current-model-open-' + scenario.width + '.png'), animations: 'disabled' });
+  await page.getByRole('button', { name: '用于下次发送', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.getByRole('textbox', { name: '消息内容' }).fill('沿用当前模型和思考强度');
+  const [response] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === '/api/threads/' + source.id + '/messages' && response.request().method() === 'POST'),
+    page.getByRole('button', { name: '发送消息', exact: true }).click(),
+  ]);
+  assert.ok(response.ok());
+  const message = response.request().postDataJSON();
+  assert.equal(message.model, undefined);
+  assert.equal(message.thinking, undefined);
 }
 
 async function verifySubmission(page) {
@@ -784,12 +848,16 @@ try {
       { name: 'web-upgrade-keeps-unknown-and-readonly-question', ids: ['UPDATE-007', 'UPDATE-009', 'OPS-004', 'INTERACT-005'], webUpgrade: true, local: true, terminal: 'unknown', question: true, readonlyQuestion: true },
       { name: 'context-references-existing-chat', ids: ['CONTROL-009', 'CONTROL-010', 'SEND-003', 'SEND-004', 'SEND-009'], references: true, contextFailure: true },
       { name: 'context-references-new-chat', ids: ['CONTROL-009', 'CONTROL-010', 'SEND-002', 'SEND-004', 'SEND-009'], references: true, referenceCreation: true },
+      { name: 'composer-menu-over-markdown', ids: ['UI-005'], composerMenu: true },
+      { name: 'current-model-in-settings', ids: ['SEND-009', 'UI-006'], currentModel: true },
     ]) {
       scenario = { ...item, width: viewport.width, rejectCreation: !item.failedCreation && !item.referenceCreation, createdInputs: [] };
       const { context, page } = await pageFor(viewport);
       const result = { scenario: item.name, ids: [...item.ids, 'UI-001'], viewport, status: 'passed' };
       try {
-        if (item.webUpgrade) await verifyWebUpgrade(page);
+        if (item.composerMenu) await verifyComposerMenu(page);
+        else if (item.currentModel) await verifyCurrentModel(page);
+        else if (item.webUpgrade) await verifyWebUpgrade(page);
         else if (item.references) await verifyContextReferences(page);
         else if (item.creation) await verifyCreation(page);
         else if (item.upgrade) await verifyUpgrade(page);

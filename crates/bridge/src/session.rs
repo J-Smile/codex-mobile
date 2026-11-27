@@ -222,7 +222,7 @@ impl Session {
             return json!({"native":status["native"]==true,"create":status["native"]==true,"asyncReplies":status["native"]==true,
                 "readLive":available,"send":available,"images":available,
                 "queue":available,"queueStart":available,"queueReorder":available,"queueEdit":available,
-                "interrupt":available,"interactions":available,"resume":available,"settings":available});
+                "interrupt":available,"interactions":available,"resume":available,"settings":available,"goals":available});
         }
         let native = status["native"] == true;
         let connected = native && status["connected"] == true;
@@ -240,15 +240,30 @@ impl Session {
                         && connection.owner_valid()
                         && crate::native::navigation_supported(&connection.initialized)
                 });
+        let management = |name| {
+            connected
+                && self
+                    .current
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|connection| connection.native_tools())
+                    .is_some_and(|connection| {
+                        crate::native::management_supported(&connection.initialized, name)
+                    })
+        };
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
         json!({"readLive":connected,"send":connected,"queue":controls,"catalog":false,
             "native":native,"create":native,"images":connected,"imageReferences":native,
             "desktopNavigation":desktop_navigation,
             "contextReferences":connected,
+            "contextPlugins":connected,"contextBrowser":controls,"delegation":connected,
+            "threadRename":management("set_thread_title"),"threadPin":management("set_thread_pinned"),
+            "threadArchive":management("set_thread_archived"),"threadDelete":management("delete_thread"),
             "modelSelection":native && self.model_efforts().is_some(),
             "resume":connected && native,"resumeInterrupted":connected && native,"asyncReplies":connected && native,
             "queueStart":controls,"queueReorder":controls,"queueEdit":controls,
-            "interrupt":controls,"interactions":controls,"settings":false,"goals":false})
+            "interrupt":controls,"interactions":controls,"settings":controls,"goals":controls})
     }
     pub fn model_efforts(&self) -> Option<Vec<String>> {
         self.current

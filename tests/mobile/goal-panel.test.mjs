@@ -37,6 +37,25 @@ function fixture(t, responder, overrides = {}) {
   return { props, app, calls, events };
 }
 
+test('切换聊天后旧目标暂停回执和失败不污染新目标', async t => {
+  for (const failure of [false, true]) {
+    const pending = deferred();
+    const f = fixture(t, async (url, options) => options.method ? pending.promise
+      : { goal: goal('active', { threadId: url.includes('/other/') ? 'other' : 'chat' }) });
+    await settled();
+    const saving = f.app.setStatus('paused');
+    f.props.threadId = 'other';
+    await settled();
+    if (failure) pending.reject(new Error('旧聊天失败'));
+    else pending.resolve({ goal: goal('paused') });
+    await saving;
+    assert.equal(f.app.goal.value.threadId, 'other');
+    assert.equal(f.app.goal.value.status, 'active');
+    assert.equal(f.app.actionError.value, '');
+    assert.deepEqual(f.events, []);
+  }
+});
+
 test('目标读取失败禁止写入，重试成功后才允许创建', async t => {
   const f = fixture(t, async (_url, options, count) => {
     if (count === 1) throw new Error('目标服务未连接');
@@ -59,7 +78,7 @@ test('目标读取失败禁止写入，重试成功后才允许创建', async t 
 
 test('新对话只检查目标服务并调用创建回调，线程编号变化不重置草稿或重复提交', async t => {
   const pending = deferred(), submitted = [];
-  const f = fixture(t, async () => ({ ready: true }), { threadId: '', createGoal: async input => { submitted.push(input); await pending.promise; } });
+  const f = fixture(t, async () => ({ ready: true }), { threadId: '', createGoal: async (input, onCreated) => { submitted.push(input); onCreated('created-chat'); await pending.promise; } });
   await settled();
   assert.deepEqual(f.calls.map(call => call.url), ['/api/goal-service']);
   f.app.objective.value = '新目标\n保留项目默认模型';
@@ -82,7 +101,7 @@ test('新建目标中已创建聊天但后续失败时保留表单，重新读�
   const pending = deferred();
   let creates = 0;
   const f = fixture(t, async url => url === '/api/goal-service' ? { ready: true } : { goal: null, completedGoal: null },
-    { threadId: '', createGoal: async () => { creates++; await pending.promise; } });
+    { threadId: '', createGoal: async (_input, onCreated) => { creates++; onCreated('created-chat'); await pending.promise; } });
   await settled();
   f.app.objective.value = '不应创建第二条聊天';
   f.app.tokenBudget.value = 123456789;
@@ -99,6 +118,24 @@ test('新建目标中已创建聊天但后续失败时保留表单，重新读�
   assert.equal(creates, 1);
   assert.equal(f.calls.at(-1).url, '/api/threads/created-chat/goal');
   assert.deepEqual(JSON.parse(f.calls.at(-1).body), { objective: '不应创建第二条聊天', tokenBudget: 123456789, status: 'active' });
+});
+
+test('新建目标时切换到其他聊天或关闭后，旧回执不能关闭新面板', async t => {
+  for (const leave of ['switch', 'close']) {
+    const pending = deferred();
+    const f = fixture(t, async url => url === '/api/goal-service' ? { ready: true } : { goal: goal() },
+      { threadId: '', createGoal: async (_input, onCreated) => { onCreated('created-chat'); await pending.promise; } });
+    await settled();
+    f.app.objective.value = '原目标';
+    const saving = f.app.save();
+    if (leave === 'switch') f.props.threadId = 'other-chat';
+    else f.props.open = false;
+    await settled();
+    pending.resolve();
+    await saving;
+    assert.deepEqual(f.events, []);
+    if (leave === 'switch') assert.equal(f.app.goal.value.objective, '完成手机目标');
+  }
 });
 
 test('目标服务未就绪时新建目标不会调用创建回调', async t => {

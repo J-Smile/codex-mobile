@@ -11,7 +11,8 @@ const props = withDefaults(defineProps<{
   busy?: boolean;
   error?: string;
   unavailable?: string;
-}>(), { initialTask: '', busy: false, error: '', unavailable: '' });
+  queueSupported?: boolean;
+}>(), { initialTask: '', busy: false, error: '', unavailable: '', queueSupported: true });
 const emit = defineEmits<{ submit: [request: DelegationRequest]; close: []; 'after-close': [] }>();
 const task = ref(props.initialTask);
 const targetId = ref('');
@@ -24,7 +25,7 @@ function close() {
 }
 
 function submit() {
-  if (!canSubmit.value) return;
+  if (!canSubmit.value || (mode.value === 'queue' && props.queueSupported === false)) return;
   emit('submit', { prompt: delegationPrompt(task.value, target.value), mode: mode.value, target: target.value });
 }
 
@@ -34,6 +35,7 @@ watch(() => props.open, (open) => {
   targetId.value = '';
   mode.value = 'now';
 }, { immediate: true });
+watch(() => props.queueSupported, supported => { if (supported === false) mode.value = 'now'; });
 </script>
 
 <template>
@@ -60,7 +62,7 @@ watch(() => props.open, (open) => {
               <label for="delegation-mode">处理时间</label>
               <select id="delegation-mode" v-model="mode" :disabled="busy">
                 <option value="now">现在</option>
-                <option value="queue">当前任务之后</option>
+                <option v-if="queueSupported" value="queue">当前任务之后</option>
               </select><ArrowDown />
             </div>
           </div>

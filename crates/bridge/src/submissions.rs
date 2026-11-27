@@ -354,6 +354,31 @@ impl Submissions {
         )
         .await
     }
+    pub async fn delete_thread(
+        self: &Arc<Self>,
+        owner: String,
+        id: &str,
+        input: Value,
+    ) -> Result<Value> {
+        if input["confirm"] != "delete-thread" {
+            return Err(BridgeError::invalid("请明确确认删除聊天。").before_send());
+        }
+        let target = format!("delete:{id}");
+        let key = crate::digest(&target);
+        let desktop = self.desktop.clone();
+        let id = id.to_owned();
+        self.dedup(
+            OperationIdentity {
+                owner,
+                key: key.clone(),
+                hash: key,
+                target,
+                kind: "thread-delete",
+            },
+            async move { desktop.manage_thread(&id, "delete", input).await },
+        )
+        .await
+    }
 }
 fn message_fields(input: &Value, images: &[String]) -> Result<(String, String)> {
     let prompt = input["prompt"]

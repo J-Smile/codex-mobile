@@ -11,7 +11,7 @@ const props = defineProps<{
   goal?: ThreadGoal | null;
   completedGoal?: ThreadGoal | null;
   initialObjective?: string;
-  createGoal?: (input: GoalInput) => Promise<void>;
+  createGoal?: (input: GoalInput, onCreated?: (threadId: string) => void) => Promise<void>;
 }>();
 const emit = defineEmits<{
   close: [];
@@ -40,6 +40,7 @@ const canSave = computed(() => formOpen.value && ready.value && !loading.value &
   && !!(props.threadId || props.createGoal));
 let reader: AbortController | undefined;
 let creatingThread = false;
+let creatingThreadId = '';
 
 async function load(preserveDraft = false) {
   if (!props.open) return;
@@ -77,9 +78,11 @@ async function load(preserveDraft = false) {
   }
 }
 
-watch([() => props.open, () => props.threadId], ([open]) => {
-  if (creatingThread) return;
+watch([() => props.open, () => props.threadId], ([open, threadId]) => {
+  if (creatingThread && open && (!threadId || threadId === creatingThreadId)) return;
   reader?.abort();
+  creatingThread = false;
+  busy.value = '';
   if (!open) return;
   goal.value = props.goal ?? null;
   completedGoal.value = props.completedGoal ?? null;
@@ -106,28 +109,32 @@ async function edit(newGoal = false) {
 async function save() {
   if (!canSave.value) return;
   const threadId = props.threadId;
+  const lifetime = reader;
+  const creating = !threadId;
   const input: GoalInput = { objective: objective.value.trim(),
     ...(budgetNumber.value !== null ? { tokenBudget: budgetNumber.value } : editingExisting.value ? { tokenBudget: null } : {}) };
   busy.value = 'saving';
-  creatingThread = !threadId;
+  creatingThread = creating;
+  creatingThreadId = '';
   actionError.value = '';
   try {
-    if (creatingThread) await props.createGoal!(input);
+    if (creating) await props.createGoal!(input, id => { creatingThreadId = id; });
     else {
       const state = await request<GoalState>(threadUrl(threadId, 'goal'), {
         method: 'PATCH', body: JSON.stringify({ ...input, ...(!editingExisting.value ? { status: 'active' } : {}) }),
       });
+      if (lifetime?.signal.aborted) return;
       goal.value = state.goal;
       completedGoal.value = state.completedGoal ?? null;
       emit('changed', { threadId, ...state });
     }
-    emit('close');
+    if (!lifetime?.signal.aborted) emit('close');
   } catch (failure) {
+    if (lifetime?.signal.aborted) return;
     actionError.value = (failure as Error).message;
-    if (creatingThread && props.threadId) await load(true);
+    if (creating && props.threadId) { creatingThread = false; busy.value = ''; await load(true); }
   } finally {
-    creatingThread = false;
-    busy.value = '';
+    if (reader === lifetime) { creatingThread = false; busy.value = ''; }
   }
 }
 
@@ -135,30 +142,34 @@ async function setStatus(status: 'active' | 'paused') {
   if (!ready.value || busy.value || !goal.value || !props.threadId
     || (status === 'active' ? !canResume.value : goal.value.status !== 'active')) return;
   const threadId = props.threadId;
+  const lifetime = reader;
   busy.value = status === 'active' ? 'resuming' : 'pausing';
   actionError.value = '';
   try {
     const state = await request<GoalState>(threadUrl(threadId, 'goal'), { method: 'PATCH', body: JSON.stringify({ status }) });
+    if (lifetime?.signal.aborted) return;
     goal.value = state.goal;
     completedGoal.value = state.completedGoal ?? null;
     emit('changed', { threadId, ...state });
-  } catch (failure) { actionError.value = (failure as Error).message; }
-  finally { busy.value = ''; }
+  } catch (failure) { if (!lifetime?.signal.aborted) actionError.value = (failure as Error).message; }
+  finally { if (reader === lifetime) busy.value = ''; }
 }
 
 async function endGoal() {
   if (!ready.value || busy.value || !goal.value || goal.value.status === 'complete' || !props.threadId) return;
   const threadId = props.threadId;
+  const lifetime = reader;
   busy.value = 'ending';
   actionError.value = '';
   try {
     const state = await request<GoalState>(threadUrl(threadId, 'goal'), { method: 'DELETE' });
+    if (lifetime?.signal.aborted) return;
     goal.value = state.goal;
     completedGoal.value = state.completedGoal ?? null;
     emit('changed', { threadId, ...state });
     emit('close');
-  } catch (failure) { actionError.value = (failure as Error).message; }
-  finally { busy.value = ''; }
+  } catch (failure) { if (!lifetime?.signal.aborted) actionError.value = (failure as Error).message; }
+  finally { if (reader === lifetime) busy.value = ''; }
 }
 </script>
 

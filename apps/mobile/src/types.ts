@@ -14,6 +14,7 @@ export interface DesktopThread {
   permissionMode?: string;
   permissionProfile?: string | null;
   pinnedIndex?: number;
+  archived?: boolean;
   projectId?: string | null;
   updatedAt?: number;
   goal?: import('./features/goals/goals').ThreadGoal | null;

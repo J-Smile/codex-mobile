@@ -58,6 +58,21 @@ test('回前台只刷新首屏目录，项目预览保留已读记录并继续�
   assert.equal(f.catalog.hasMoreProjectHistory.value, false);
 });
 
+test('归档或删除同时移除首屏与历史预览，旧目录回执不能恢复已移除聊天', async t => {
+  const f = fixture(t);
+  await f.catalog.refresh();
+  await f.catalog.loadProjectHistory();
+  let resolve;
+  globalThis.fetch = () => new Promise(done => { resolve = done; });
+  const loading = f.catalog.loadThreads();
+  f.catalog.removeCatalogThread('older');
+  f.catalog.removeCatalogThread('recent');
+  resolve(Response.json({threads:[{id:'recent',title:'旧回执'}],nextCursor:null}));
+  await loading;
+  assert.deepEqual(f.catalog.knownThreads.value,[]);
+  assert.equal(f.catalog.loadingThreads.value,false);
+});
+
 test('多个项目共用历史游标，跳过空页并各自取按更新时间排列的三条', async t => {
   const f = fixture(t);
   const project = (id, updatedAt, projectId = 'old') => ({ id, title: id, projectId, updatedAt });

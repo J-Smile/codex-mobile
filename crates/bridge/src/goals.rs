@@ -109,12 +109,12 @@ impl Goals {
         }
     }
     async fn connection(self: &Arc<Self>) -> Result<Arc<AppServerConnection>> {
-        self.session.require("readLive")?;
         if self.cancel.is_cancelled() {
             return Err(BridgeError::unavailable("目标观察已停止。").before_send());
         }
         self.listen();
         let connection = self.session.connect().await?;
+        self.session.require("goals")?;
         self.remember_connection(&connection).await;
         Ok(connection)
     }
@@ -211,13 +211,9 @@ impl Goals {
         method: &str,
         changes: Value,
     ) -> Result<Value> {
-        if method != "thread/goal/get" {
-            return Err(
-                BridgeError::unavailable("手机目标当前仅供查看，请在桌面设置或暂停目标。")
-                    .before_send(),
-            );
+        if !["thread/goal/get", "thread/goal/set", "thread/goal/clear"].contains(&method) {
+            return Err(BridgeError::invalid("目标操作无效。").before_send());
         }
-        self.session.require("readLive")?;
         let connection = self.connection().await?;
         // This receiver shares the socket reader. It lets us apply notifications
         // known to precede the response before a slower Session observer runs.
@@ -225,6 +221,9 @@ impl Goals {
         let before = self.states.read().await.get(id).cloned();
         let mut params = changes;
         params["threadId"] = json!(id);
+        if method != "thread/goal/get" {
+            params["origin"] = json!("user");
+        }
 
         let (result, sequence) = connection.rpc_with_sequence(method, params).await?;
         loop {

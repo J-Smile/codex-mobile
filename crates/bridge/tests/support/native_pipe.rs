@@ -104,12 +104,22 @@ impl NativePipe {
         if request["method"] == "tools/list" {
             let tools = [("read_thread", vec!["threadId"]), ("send_message_to_thread", vec!["threadId", "prompt"]),
                 ("create_thread", vec!["prompt", "target"]), ("list_projects", vec![]), ("list_threads", vec![]),
-                ("navigate_to_codex_page", vec!["threadId"])]
+                ("navigate_to_codex_page", vec!["threadId"]),
+                ("set_thread_title", vec!["title"]), ("set_thread_pinned", vec!["threadId","pinned"]),
+                ("set_thread_archived", vec!["archived"]), ("delete_thread", vec!["threadId"])]
                 .map(|(name, required)| {
                     let mut properties = required.iter().map(|key| ((*key).into(), json!({"type":"string"}))).collect::<serde_json::Map<_,_>>();
                     if matches!(name, "create_thread" | "send_message_to_thread") {
                         properties.insert("model".into(), json!({"type":"string"}));
                         properties.insert("thinking".into(), json!({"type":"string","enum":["low","high"]}));
+                    }
+                    if matches!(name, "set_thread_title" | "set_thread_pinned" | "set_thread_archived" | "delete_thread") {
+                        properties.insert("threadId".into(), json!({"type":"string"}));
+                        properties.insert("source".into(), json!({"type":"string","enum":["codex","chatgpt"]}));
+                        properties.insert("hostId".into(), json!({"type":"string"}));
+                        for field in ["pinned", "archived"] {
+                            if required.contains(&field) { properties.insert(field.into(), json!({"type":"boolean"})); }
+                        }
                     }
                     json!({"name":name,"namespace":"codex_app","inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
                 });
@@ -118,6 +128,24 @@ impl NativePipe {
         assert_eq!(request["method"], "tools/call");
         let args = &request["params"]["arguments"];
         let payload = match request["params"]["tool"].as_str().unwrap() {
+            "set_thread_title" | "set_thread_pinned" | "set_thread_archived" => {
+                let id = args["threadId"].as_str().unwrap();
+                let mut rows = self.reads.lock().await;
+                let thread = &mut rows.get_mut(id).unwrap()["thread"];
+                for field in ["title", "pinned", "archived"] {
+                    if let Some(value) = args.get(field) {
+                        thread[field] = value.clone();
+                    }
+                }
+                args.clone()
+            }
+            "delete_thread" => {
+                self.reads
+                    .lock()
+                    .await
+                    .remove(args["threadId"].as_str().unwrap());
+                json!({"threadId":args["threadId"],"deleted":true})
+            }
             "read_thread" => {
                 if self.hold_reads.load(Ordering::Acquire) {
                     self.release_reads.acquire().await.unwrap().forget();

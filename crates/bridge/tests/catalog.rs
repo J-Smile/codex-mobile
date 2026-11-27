@@ -8,6 +8,29 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 use support::{Fixture, MockDesktop};
 
+#[test]
+fn archived_catalog_preserves_archive_state_and_rejects_active_cursor() {
+    let f = Fixture::new();
+    let connection = Connection::open(f.paths.codex_home.join("state_5.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE threads SET archived=1 WHERE id IN ('chat','other')",
+            [],
+        )
+        .unwrap();
+    let history = codex_mobile_bridge::history::History::new(f.paths.codex_home.clone());
+    let archived = history.archived_catalog("", None, 1).unwrap();
+    assert_eq!(archived["threads"].as_array().unwrap().len(), 1);
+    assert!(archived["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|thread| thread["archived"] == true));
+    let cursor = archived["nextCursor"].as_str().unwrap();
+    assert!(history.catalog(None, "", Some(cursor), 1).is_err());
+    assert_eq!(history.metadata("chat", false).unwrap()["archived"], true);
+}
+
 async fn server(fixture: &Fixture) -> Server {
     Bridge::open(
         fixture.paths.clone(),

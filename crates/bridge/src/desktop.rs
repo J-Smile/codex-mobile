@@ -384,12 +384,69 @@ impl Desktop {
         Ok(json!({"status":"created","threadId":id,"firstTurnAccepted":false}))
     }
     pub async fn browser_inventory(self: &Arc<Self>, thread: &str) -> Result<Value> {
+        self.session.require("contextBrowser")?;
         let (_, connection) = self.connected_follow(thread).await?;
         connection.request(
             "mcpServer/tool/call",
             json!({"threadId":thread,"server":"cua_repl","tool":"js","arguments":{"code":"await cua.getState();","title":"Reading browser tabs"}}),
             Duration::from_secs(60),
         ).await
+    }
+    pub async fn manage_thread(
+        self: &Arc<Self>,
+        id: &str,
+        action: &str,
+        input: Value,
+    ) -> Result<Value> {
+        let (capability, tool, field) = match action {
+            "rename" => ("threadRename", "set_thread_title", "title"),
+            "pin" => ("threadPin", "set_thread_pinned", "pinned"),
+            "archive" => ("threadArchive", "set_thread_archived", "archived"),
+            "delete" => ("threadDelete", "delete_thread", "confirm"),
+            _ => return Err(BridgeError::invalid("聊天操作无效。").before_send()),
+        };
+        self.session.require(capability)?;
+        let mut args = json!({"threadId":id,"source":"codex"});
+        let value = &input[field];
+        match action {
+            "rename" => {
+                let title = value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|title| !title.is_empty() && title.chars().count() <= 200)
+                    .ok_or_else(|| {
+                        BridgeError::invalid("聊天标题须为 1 到 200 字。").before_send()
+                    })?;
+                args[field] = json!(title);
+            }
+            "pin" | "archive" if value.is_boolean() => args[field] = value.clone(),
+            "delete" if value == "delete-thread" => {}
+            _ => return Err(BridgeError::invalid("请明确确认本次聊天操作。").before_send()),
+        }
+        if action == "archive" || action == "delete" {
+            args["hostId"] = json!("local");
+        }
+        let connection = self.session.connect().await?;
+        let native = connection
+            .native_tools()
+            .ok_or_else(|| BridgeError::unavailable("官方桌面消息连接已断开。").before_send())?;
+        self.require_route(&native, id).await?;
+        let result = Self::native_call(&native, id, tool, args.clone(), None).await?;
+        if result["threadId"] != id
+            || match action {
+                "delete" => result["deleted"] != true,
+                _ => result[field] != args[field],
+            }
+        {
+            return Err(BridgeError::unavailable(
+                "官方桌面尚未确认操作完成，请重新读取聊天状态。",
+            ));
+        }
+        self.native_threads.write().await.remove(id);
+        if let Some(follow) = self.follows.lock().unwrap().get(id) {
+            follow.refresh.notify_one();
+        }
+        Ok(result)
     }
     pub async fn project_assignment(&self, id: &str) -> Option<Value> {
         self.native_threads
@@ -814,6 +871,9 @@ impl Desktop {
     pub async fn update_settings(self: &Arc<Self>, id: &str, changes: Value) -> Result<Value> {
         self.session.require("settings")?;
         let (follow, connection) = self.connected_follow(id).await?;
+        if connection.is_native() {
+            return Err(BridgeError::unavailable("此聊天的控制通道尚未就绪。").before_send());
+        }
         let mut params = changes.clone();
         params["threadId"] = json!(id);
         if let Some(permission) = changes["permissions"].as_str() {
@@ -823,10 +883,12 @@ impl Desktop {
         }
         if let Some(mode) = params.as_object_mut().unwrap().remove("mode") {
             let state = follow.state.read().await;
+            // 由官方按目标模式生成指令，不能把执行指令带进规划模式。
             params["collaborationMode"] = json!({"mode":mode,"settings":{
                 "model":changes.get("model").unwrap_or(&state.settings["model"]),
                 "reasoning_effort":changes.get("effort").unwrap_or(&state.settings["effort"]),
-                "developer_instructions":null}});
+                "developer_instructions":null
+            }});
         }
         connection.rpc("thread/settings/update", params).await?;
         let (snapshot, sequence) = connection.rpc_with_sequence("thread/resume", json!({"threadId":id,
@@ -842,6 +904,20 @@ impl Desktop {
             .read()
             .await
             .settings_view(self.history.recent_models()?);
+        for field in ["mode", "model", "effort", "permissions"] {
+            if let Some(expected) = changes.get(field) {
+                let actual = if field == "permissions" {
+                    &settings[field]["mode"]
+                } else {
+                    &settings[field]
+                };
+                if actual != expected {
+                    return Err(BridgeError::unavailable(
+                        "官方回读的设置尚未与本次修改一致，请重新读取后确认。",
+                    ));
+                }
+            }
+        }
         Ok(settings)
     }
     pub async fn interrupt(self: &Arc<Self>, id: &str, turn_id: &str) -> Result<Value> {
@@ -861,7 +937,10 @@ impl Desktop {
         let paused = goal["goal"]["status"] == "active";
         if paused {
             connection
-                .rpc("thread/goal/set", json!({"threadId":id,"status":"paused"}))
+                .rpc(
+                    "thread/goal/set",
+                    json!({"threadId":id,"status":"paused","origin":"user"}),
+                )
                 .await?;
         }
         connection
@@ -1271,6 +1350,14 @@ impl Desktop {
         }
         connection.rpc("turn/start", params).await
     }
+    pub(crate) async fn creation_turn(&self, id: &str) -> Result<Value> {
+        let connection = self.session.connect().await?;
+        let native = connection
+            .native_tools()
+            .ok_or_else(|| BridgeError::unavailable("等待官方桌面确认首轮。"))?;
+        let payload = self.native_read(&native, id).await?;
+        Ok(first_observed_turn(&payload))
+    }
     async fn native_snapshot(
         &self,
         connection: &Arc<AppServerConnection>,
@@ -1350,7 +1437,12 @@ fn merge_native_snapshot(mut history: Value, payload: Value) -> Value {
     history["connection"] = json!("live");
     // 沿用旧客户端识别原生桌面快照及首轮回执的协议值。
     history["syncMode"] = json!("desktop-poll");
-    history["firstTurnObserved"] = payload["turns"]
+    history["firstTurnObserved"] = first_observed_turn(&payload);
+    history
+}
+
+fn first_observed_turn(payload: &Value) -> Value {
+    payload["turns"]
         .as_array()
         .and_then(|turns| turns.last())
         .filter(|turn| {
@@ -1362,8 +1454,7 @@ fn merge_native_snapshot(mut history: Value, payload: Value) -> Value {
                 )
         })
         .map(|turn| turn["id"].clone())
-        .unwrap_or(Value::Null);
-    history
+        .unwrap_or(Value::Null)
 }
 
 #[cfg(test)]

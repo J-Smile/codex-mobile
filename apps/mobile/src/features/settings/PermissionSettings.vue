@@ -20,7 +20,7 @@ const choices = [
   { id: 'full-access', label: '完全访问', detail: '可访问电脑文件和网络，不再逐项询问' },
 ];
 const reading = computed(() => !permissions.value && !error.value);
-const canChoose = computed(() => !!permissions.value && props.connected && !saving.value);
+const canChoose = computed(() => props.editable !== false && !!permissions.value && props.connected && !saving.value);
 const canApply = computed(() => canChoose.value && selected.value !== permissions.value?.mode
   && choices.some(choice => choice.id === selected.value));
 const fullAccess = computed(() => !props.newThread && (props.thread?.permissionProfile === ':danger-full-access'
@@ -52,21 +52,22 @@ async function readSettings() {
 }
 watch(open, visible => {
   if (visible) { presented.value = props.newThread ? 'defaults' : 'thread'; void readSettings(); }
-  else settingsRequest?.abort();
+  else { settingsRequest?.abort(); saving.value = false; }
 });
 onBeforeUnmount(() => settingsRequest?.abort());
 
 async function apply() {
   if (!open.value || props.newThread || !props.thread || !canApply.value) return;
   const threadId = props.thread.id;
+  const lifetime = settingsRequest;
   saving.value = true;
   error.value = '';
   try {
     const result = await request<{ applied: boolean }>(threadUrl(threadId, 'settings'), { method: 'POST', body: JSON.stringify({ permissions: selected.value }) });
     if (!result.applied) throw new Error('权限设置尚未应用，请稍后重试。');
-    if (props.thread?.id === threadId) open.value = false;
-  } catch (failure) { if (props.thread?.id === threadId) error.value = (failure as Error).message; }
-  finally { saving.value = false; }
+    if (!lifetime?.signal.aborted && props.thread?.id === threadId) open.value = false;
+  } catch (failure) { if (!lifetime?.signal.aborted && props.thread?.id === threadId) error.value = (failure as Error).message; }
+  finally { if (settingsRequest === lifetime) saving.value = false; }
 }
 </script>
 

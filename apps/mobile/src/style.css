@@ -124,7 +124,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .connection-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
 .connection-dot.online { background: var(--online); }
 .conversation-scroll { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; margin-top: var(--chat-top, 80px); padding-block: 12px 16px; scroll-padding-block: 12px 16px; }
-.conversation { width: 100%; max-width: 820px; margin: 0 auto; padding: 18px 28px 22px; }
+.conversation { width: 100%; max-width: 820px; margin: 0 auto; isolation: isolate; padding: 18px 28px 22px; }
 .turn-time { text-align: center; color: var(--muted); font-size: 11px; margin: 4px 0 20px; font-variant-numeric: tabular-nums; }
 .turn + .turn { margin-top: 32px; }
 .user-row { display: flex; justify-content: flex-end; margin: 0 0 24px; }

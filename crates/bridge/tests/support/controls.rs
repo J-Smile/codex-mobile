@@ -58,6 +58,67 @@ async fn snapshot_matching(
     .await
     .unwrap()
 }
+
+#[tokio::test]
+async fn settings_preserve_model_and_verify_official_permission_and_mode_readback() {
+    let f = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&f).await;
+    let desktop = desktop(&f).await;
+    let id = create(&desktop, &f, &mock).await;
+    let before = desktop.settings(&id).await.unwrap();
+    for permission in ["read-only", "workspace-write", "full-access"] {
+        let result = desktop
+            .update_settings(&id, json!({"permissions":permission}))
+            .await
+            .unwrap();
+        assert_eq!(result["permissions"]["mode"], permission);
+        assert_eq!(result["model"], before["model"]);
+    }
+    for mode in ["plan", "default"] {
+        let result = desktop
+            .update_settings(&id, json!({"mode":mode}))
+            .await
+            .unwrap();
+        assert_eq!(result["mode"], mode);
+        assert_eq!(result["model"], before["model"]);
+    }
+    desktop.close().await;
+}
+
+#[tokio::test]
+async fn goal_partial_updates_preserve_objective_and_explicit_budget_clearing() {
+    let f = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&f).await;
+    let desktop = desktop(&f).await;
+    let id = create(&desktop, &f, &mock).await;
+    let goals = crate::goals::Goals::with_session(desktop.session.clone());
+    goals
+        .request(
+            &id,
+            "thread/goal/set",
+            json!({"objective":"合成目标","tokenBudget":4000,"status":"paused"}),
+        )
+        .await
+        .unwrap();
+    let state = goals
+        .request(&id, "thread/goal/set", json!({"status":"active"}))
+        .await
+        .unwrap();
+    assert_eq!(state["goal"]["objective"], "合成目标");
+    assert_eq!(state["goal"]["tokenBudget"], 4000);
+    let state = goals
+        .request(&id, "thread/goal/set", json!({"tokenBudget":null}))
+        .await
+        .unwrap();
+    assert!(state["goal"]["tokenBudget"].is_null());
+    let state = goals
+        .request(&id, "thread/goal/clear", json!({}))
+        .await
+        .unwrap();
+    assert!(state["goal"].is_null());
+    goals.close().await;
+    desktop.close().await;
+}
 #[tokio::test]
 async fn official_instance_authorizes_registered_routes_and_reconnects_without_recreating() {
     let f = Fixture::new();

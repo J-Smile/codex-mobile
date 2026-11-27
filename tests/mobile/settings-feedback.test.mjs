@@ -45,6 +45,18 @@ test('unavailable delegation keeps the task and target editable, then submits af
   assert.deepEqual(f.events[0][1], { prompt: delegationPrompt('继续检查手机页面', target), mode: 'queue', target });
 });
 
+test('官方委派未支持队列时只提交即时请求，队列能力消失保留任务', async t => {
+  const f = fixture(t, 'composer/AgentDelegation.vue', { open: true, targets: [], initialTask: '检查页面', busy: false, unavailable: '', queueSupported: true });
+  f.app.mode.value = 'queue';
+  f.props.queueSupported = false;
+  await vue.nextTick();
+  assert.equal(f.app.mode.value, 'now');
+  assert.equal(f.app.task.value, '检查页面');
+  f.app.submit();
+  assert.equal(f.events[0][1].mode, 'now');
+  assert.match(f.events[0][1].prompt, /请创建一个子智能体/);
+});
+
 // UPDATE-001 原凭据保存/删除场景随入口移除迁移为只读失败恢复；不再保留写凭据能力。
 test('公开更新状态读取失败可重试，保留暂停模式且不提交凭据', async t => {
   let resolveRequest, rejectRequest;

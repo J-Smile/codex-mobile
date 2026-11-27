@@ -147,6 +147,20 @@ test('纯图新建携带图片和明确选择，首轮确认只清理本次提�
   assert.equal(app.createdDraft.value, null);
 });
 
+test('共享控制首轮确认同样结束创建恢复并清理原草稿', async t => {
+  const app = fixture(t, async()=>({threadId:'created-chat',firstTurnAccepted:false}));
+  app.capabilities.value.create = true; app.creationSource.value = 'chosen-source';
+  await app.createChat();
+  assert.equal(app.firstTurnPending.value, true);
+  app.applySnapshot({thread:{id:'created-chat'},turns:[],firstTurnPending:false});
+  assert.equal(app.firstTurnPending.value, false);
+  assert.equal(app.recoveredCreations.value.length, 0);
+  assert.equal(app.createdDraft.value, null);
+  assert.equal(app.drafts['new:project-a'], '');
+  assert.equal(app.cleared.length, 1);
+  assert.equal(app.requests.length, 1);
+});
+
 test('已有聊天文图发送透传模型，接受后清空本次草稿', async t => {
   const app = fixture(t, async()=>({accepted:true}));
   app.newChat.value = false; app.selectedId.value = 'chat';

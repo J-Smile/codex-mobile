@@ -11,14 +11,17 @@ const thread = { id: 'managed-chat', title: 'Mobile 合成验收', status: 'idle
 const project = { projectId: 'managed-project', label: '合成项目', path: '/fixture/project' };
 const capabilities = { native: false, readLive: true, send: true,
   create: true, images: true, modelSelection: true, contextReferences: true, interactions: true,
+  settings: true, goals: true, delegation: true, contextPlugins: true, contextBrowser: true,
+  threadRename: true, threadPin: true, threadArchive: true, threadDelete: true,
   interrupt: true, resume: true, resumeInterrupted: true, queue: true, queueEdit: true, queueReorder: true, queueStart: true };
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf8kAAAAASUVORK5CYII=', 'base64');
 const imageId = 'c'.repeat(32) + '.png';
 let state;
 const results = [], errors = [];
 function snapshot(id = thread.id) {
-  return { thread: { ...thread, id, title: id === thread.id ? thread.title : 'Mobile 新建验收' }, turns: state.turns,
-    interactions: state.interactions, queue: state.queue, nextCursor: null, connection: 'live', firstTurnPending: false, capabilities };
+  return { thread: { ...thread, ...state.metadata, goal: state.goal, mode: state.mode, id, title: state.metadata?.title || (id === thread.id ? thread.title : 'Mobile 新建验收') }, turns: state.turns,
+    interactions: state.interactions, queue: state.queue, nextCursor: null, connection: 'live', firstTurnPending: !!state.creatingGoal,
+    capabilities: state.creatingGoal ? {...capabilities, goals:false, send:false} : capabilities };
 }
 function publish() {
   for (const [stream, id] of state.streams) stream.write('event: snapshot\ndata: ' + JSON.stringify(snapshot(id)) + '\n\n');
@@ -37,7 +40,34 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/api/update-settings') return json({ configured: false, version: '0.3.29' });
     if (url.pathname === '/api/threads') {
       if (request.method === 'GET') return json({ threads: [thread], nextCursor: null });
+      if (input.prompt.includes('等我设置目标与预算后再开始')) {
+        state.creatingGoal = true;
+        setTimeout(() => { state.creatingGoal = false; publish(); }, 500);
+        return json({created:true,threadId:'managed-created-goal',firstTurnAccepted:false});
+      }
       return json({ created: true, threadId: 'managed-created', firstTurnAccepted: true, firstTurnPending: false });
+    }
+    if (url.pathname === '/api/goal-service') return json({ready:true});
+    if (url.pathname === '/api/thread-catalog') return json({ threads: [{ ...thread, archived: url.searchParams.get('archived') === 'true' }], nextCursor: null });
+    if (url.pathname === '/api/context') return json({ mode: 'context', plugins: [{id:'synthetic',kind:'plugin',label:'合成插件',description:'验收插件',mention:'[合成插件](plugin://synthetic@test)'}], browserTabs:[{id:'tab',kind:'browser',label:'合成标签页',description:'https://example.test',mention:'[合成标签页](plugin://browser@openai-bundled?mention=tab-v1&browserId=managed-chat&tabId=synthetic)'}],files:[] });
+    if (url.pathname.endsWith('/settings')) {
+      if (request.method === 'POST') {
+        if (input.mode) state.mode = input.mode;
+        if (input.permissions) state.permission = input.permissions;
+        publish();
+      }
+      return json({applied:true,mode:state.mode || 'default',model:'fixture-model',permissions:{mode:state.permission || 'workspace-write',profile:':workspace'}});
+    }
+    if (url.pathname.endsWith('/goal')) {
+      if (request.method === 'PATCH') state.goal = {threadId:thread.id,objective:'',status:'active',tokenBudget:null,tokensUsed:0,timeUsedSeconds:0,createdAt:1,updatedAt:2,...state.goal,...input};
+      if (request.method === 'DELETE') state.goal = null;
+      if (request.method !== 'GET') publish();
+      return json({goal:state.goal || null,completedGoal:null});
+    }
+    if (url.pathname.endsWith('/manage')) {
+      const action = url.searchParams.get('action');
+      state.metadata = {...state.metadata,...input,...(action === 'pin' ? {pinnedIndex:input.pinned ? 1 : null} : {})};
+      publish(); return json({threadId:url.pathname.split('/')[3],...input,...(action==='delete'?{deleted:true}:{})});
     }
     if (url.pathname === '/api/model-options') return json({ recentModels: ['fixture-model'], efforts: ['low', 'high'] });
     if (url.pathname === '/api/images') return json({ id: imageId, name: 'synthetic.png', type: 'image/png', size: image.length, url: '/api/images/' + imageId });
@@ -147,6 +177,23 @@ try {
       const writes = state.calls.filter(call => call.path.includes('/interactions/'));
       assert.deepEqual(writes.map(call => call.input), [{ answers: { answer: ['合成回答'] } }, { decision: 'decline' }]);
       assert.equal(await composer.innerText(), '');
+      await page.getByRole('button',{name:'新建聊天',exact:true}).click();
+      await page.locator('dialog[open]').getByRole('button',{name:project.label,exact:true}).click();
+      await page.locator('dialog[open]').waitFor({state:'hidden'});
+      await composer.fill('新目标原草稿');
+      await page.getByRole('button',{name:'更多操作',exact:true}).click();
+      await page.getByRole('menuitemradio',{name:'目标',exact:true}).click();
+      await page.getByLabel('希望完成什么',{exact:true}).fill('新聊天等待首轮后设置目标');
+      await page.getByPlaceholder('不设预算',{exact:true}).fill('7000');
+      await page.getByRole('button',{name:'设置目标',exact:true}).click();
+      await page.locator('.goal-panel').waitFor({state:'hidden'});
+      assert.equal(state.calls.filter(call=>call.method==='POST'&&call.path==='/api/threads').length,2);
+      assert.ok(state.calls.some(call=>call.method==='PATCH'&&call.path==='/api/threads/managed-created-goal/goal'&&call.input.tokenBudget===7000));
+      assert.equal(await composer.innerText(),'');
+      await page.getByRole('button',{name:'更多操作',exact:true}).click();
+      await page.getByRole('menuitemradio',{name:'目标',exact:true}).click();
+      await page.getByRole('button',{name:'结束目标',exact:true}).click();
+      await page.locator('.goal-panel').waitFor({state:'hidden'});
       // 原生仅开放答案投递；刷新仍保留状态，普通输入和继续任务都可操作。
       Object.assign(capabilities, { native: true, interactions: false, asyncReplies: true, interrupt: false, queue: false });
       state.turns = [];
@@ -169,6 +216,73 @@ try {
       assert.equal(state.calls.filter(call => call.path.includes('/interactions/native-question')).length, 1);
       assert.equal(state.calls.filter(call => call.path.endsWith('/resume')).length, 2);
       result.ids.push('INTERACT-008', 'CONTROL-012');
+      state.turns = []; state.interactions = []; publish();
+      const menu = async () => { await page.getByRole('button', {name:'更多操作',exact:true}).click(); };
+      await menu();
+      await page.getByRole('menuitemradio',{name:'规划',exact:true}).click();
+      await page.waitForFunction(() => [...document.querySelectorAll('[role="menuitemradio"]')].some(button => button.textContent.includes('规划') && button.getAttribute('aria-checked') === 'true' && !button.disabled));
+      await page.getByRole('menuitemradio',{name:'执行',exact:true}).click();
+      await page.waitForFunction(() => [...document.querySelectorAll('[role="menuitemradio"]')].some(button => button.textContent.includes('执行') && button.getAttribute('aria-checked') === 'true' && !button.disabled));
+      await page.getByRole('menuitemradio',{name:'目标',exact:true}).click();
+      await page.getByLabel('希望完成什么',{exact:true}).fill('完成合成目标');
+      await page.getByPlaceholder('不设预算',{exact:true}).fill('5000');
+      await page.getByRole('button',{name:'设置目标',exact:true}).click();
+      await page.locator('.goal-panel').waitFor({state:'hidden'});
+      await menu(); await page.getByRole('menuitemradio',{name:'目标',exact:true}).click();
+      await page.getByRole('button',{name:'暂停目标',exact:true}).click();
+      await page.getByRole('button',{name:'继续目标',exact:true}).click();
+      await page.getByRole('button',{name:'结束目标',exact:true}).click();
+      await page.locator('.goal-panel').waitFor({state:'hidden'});
+      await page.getByRole('button',{name:/访问权限：/}).click();
+      await page.getByRole('radio',{name:/只读/}).check();
+      await page.getByRole('button',{name:'应用权限',exact:true}).click();
+      await page.getByRole('button',{name:'关闭访问权限',exact:true}).waitFor({state:'hidden'});
+      await menu(); await page.getByRole('menuitem',{name:'交给子智能体',exact:true}).click();
+      await page.getByLabel('任务内容',{exact:true}).fill('检查合成内容');
+      await page.getByRole('button',{name:'委派任务',exact:true}).click();
+      await page.locator('.delegation-sheet').waitFor({state:'hidden'});
+      assert.ok(state.calls.some(call=>call.path.endsWith('/messages') && call.input.prompt.includes('请创建一个子智能体')));
+      state.turns=[]; publish();
+      for (const label of ['合成插件','合成标签页']) {
+        await menu(); await page.getByRole('menuitem',{name:'添加上下文',exact:true}).click();
+        await page.locator('.context-result').filter({hasText:label}).click();
+        await page.getByRole('button',{name:'移除 '+label,exact:true}).waitFor();
+      }
+      assert.equal(await page.locator('.composer-context').count(),2);
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByLabel('聊天名称',{exact:true}).fill('合成重命名');
+      await page.getByRole('menu',{name:'对话操作',exact:true}).waitFor({state:'hidden'});
+      await page.screenshot({path:path.join(output,`thread-management-${native}-${viewport.width}.png`), animations:'disabled'});
+      await page.getByRole('button',{name:'保存名称',exact:true}).click();
+      await page.getByRole('heading',{name:'合成重命名',exact:true}).waitFor();
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByRole('button',{name:'置顶聊天',exact:true}).click();
+      await page.locator('.thread-management').waitFor({state:'hidden'});
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByRole('button',{name:'取消置顶',exact:true}).click();
+      await page.locator('.thread-management').waitFor({state:'hidden'});
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByRole('button',{name:'归档聊天',exact:true}).click();
+      await page.locator('.thread-management').waitFor({state:'hidden'});
+      await page.getByRole('button',{name:'已归档聊天',exact:true}).click();
+      await page.locator('.thread-browser').getByRole('button').filter({hasText:thread.title}).click();
+      await page.getByRole('heading',{name:'合成重命名',exact:true}).waitFor();
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByRole('button',{name:'恢复聊天',exact:true}).click();
+      await page.locator('.thread-management').waitFor({state:'hidden'});
+      await page.getByRole('button',{name:'对话更多操作',exact:true}).click();
+      await page.getByRole('menuitem',{name:'管理聊天',exact:true}).click();
+      await page.getByRole('button',{name:'删除聊天',exact:true}).click();
+      assert.equal(state.calls.filter(call=>call.query==='?action=delete').length,0);
+      await page.getByRole('button',{name:'确认删除',exact:true}).click();
+      await page.locator('.thread-management').waitFor({state:'hidden'});
+      assert.equal(state.calls.filter(call=>call.query==='?action=delete').length,1);
+      result.ids.push('CONTROL-016','CONTROL-017','CONTROL-018','CONTROL-019');
       Object.assign(capabilities, { native: false, interactions: true, asyncReplies: false, interrupt: true, queue: true });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     } catch (error) { result.status = 'failed'; result.error = error.stack || String(error); console.error(result.error); }
