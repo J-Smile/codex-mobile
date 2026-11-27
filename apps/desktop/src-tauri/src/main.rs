@@ -1,8 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use codex_mobile_bridge::{
-    config::ServiceConfig, host::Host, paths::Paths, updates, BridgeError, Result,
-};
+use codex_mobile_bridge::{host::Host, paths::Paths, updates, BridgeError, Result};
 use serde_json::{json, Value};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Manager, State};
@@ -45,23 +43,8 @@ async fn start_service(state: State<'_, AppState>) -> Result<Value> {
     state.host.status().await
 }
 #[tauri::command]
-async fn stop_service(state: State<'_, AppState>) -> Result<Value> {
-    state.host.stop().await?;
-    state.host.status().await
-}
-#[tauri::command]
-async fn save_config(state: State<'_, AppState>, config: ServiceConfig) -> Result<Value> {
-    state.host.save_config(config).await?;
-    state.host.status().await
-}
-#[tauri::command]
-async fn configure_relay(
-    state: State<'_, AppState>,
-    url: &str,
-    name: &str,
-    token: &str,
-) -> Result<Value> {
-    state.host.configure_relay(url, name, token).await?;
+async fn configure_relay(state: State<'_, AppState>, url: &str, name: &str) -> Result<Value> {
+    state.host.configure_relay(url, name, "").await?;
     state.host.status().await
 }
 #[tauri::command]
@@ -89,14 +72,6 @@ async fn revoke_relay_phone(state: State<'_, AppState>, phone: &str) -> Result<V
 #[tauri::command]
 async fn retry_sync(state: State<'_, AppState>) -> Result<Value> {
     state.host.connect_desktop(state.binaries.clone()).await;
-    state.host.status().await
-}
-#[tauri::command]
-async fn set_desktop_launch(state: State<'_, AppState>, enabled: bool) -> Result<Value> {
-    state
-        .host
-        .configure_desktop_launch(state.binaries.clone(), enabled)
-        .await?;
     state.host.status().await
 }
 #[tauri::command]
@@ -223,15 +198,12 @@ fn main() {
             get_autostart,
             set_autostart,
             start_service,
-            stop_service,
-            save_config,
             configure_relay,
             relay_approval,
             link_relay_desktop,
             decide_relay_approval,
             revoke_relay_phone,
             retry_sync,
-            set_desktop_launch,
             open_external,
             check_update,
             apply_update

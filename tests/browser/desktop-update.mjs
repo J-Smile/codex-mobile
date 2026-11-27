@@ -42,15 +42,14 @@ await context.addInitScript(() => {
     if (command === 'status') return structuredClone(status);
     if (command === 'get_autostart') return fixture.startup;
     if (command === 'set_autostart') return fixture.startup = args.enabled;
-    if (command === 'set_desktop_launch') { status.desktopLaunch.enabled = args.enabled; return structuredClone(status); }
     if (command === 'configure_relay') {
       status.relay.url = args.url.trim().replace(/\/$/, '');
       status.relay.name = args.name.trim() || 'Codex 电脑';
       status.relay.state = status.relay.url ? 'unlinked' : 'disabled';
       return structuredClone(status);
     }
-    if (command === 'save_config') { status.config = args.config; return structuredClone(status); }
-    if (command === 'start_service' || command === 'stop_service') {
+    if (command === 'revoke_relay_phone') { status.relay.phones = status.relay.phones.filter(phone => phone.id !== args.phone); return structuredClone(status); }
+    if (command === 'start_service') {
       status.service.running = command === 'start_service';
       return structuredClone(status);
     }
@@ -86,16 +85,15 @@ try {
   assert.equal(await page.locator('#retry-sync').isVisible(), false);
   await page.evaluate(() => { window.updateFixture.status.sync = { state: 'connected', message: '模拟已连接' }; });
   await page.clock.runFor(2500);
-  assert.equal(await page.locator('#sync-state').innerText(), '已同步');
+  assert.equal(await page.locator('#sync-state').innerText(), '已连接');
   assert.equal(await page.evaluate(() => window.updateFixture.calls.filter(value => value === 'retry_sync').length), 1);
   results.push({ id: 'HOST-009', scenario: 'one-recovery-action-only-when-disconnected', status: 'passed' });
 
   await page.locator('#open-settings').click();
   assert.equal(await page.locator('#relay-url').isVisible(), true);
-  assert.equal(await page.locator('#service-settings').getAttribute('open'), null);
+  assert.equal(await page.locator('#service-settings, #desktop-launch-settings, #relay-token, #legacy-relay-token').count(), 0);
   assert.equal(await page.locator('#advanced-settings, #lan-settings, #copy-diagnostics, #key, #rotate-key').count(), 0);
-  assert.doesNotMatch(await page.locator('#preferences-dialog').innerText(), /故障排查|局域网连接|高级设置/);
-  assert.equal(await page.locator('#legacy-relay-token').isVisible(), false);
+  assert.doesNotMatch(await page.locator('#settings-page').innerText(), /故障排查|局域网连接|高级设置/);
   await page.locator('#relay-url').fill('https://mobile.example.com/');
   await page.locator('#relay-name').fill('  测试电脑  ');
   await page.clock.runFor(2500);
@@ -108,17 +106,17 @@ try {
   await page.locator('#save-relay').click();
   assert.equal(await page.locator('#relay-url').inputValue(), 'https://mobile.example.com');
   assert.equal(await page.locator('#relay-name').inputValue(), '测试电脑');
-  await page.locator('#close-settings').click();
+  await page.locator('#open-home').click();
   await page.clock.runFor(100);
   await page.locator('#open-settings').click();
   assert.equal(await page.locator('#relay-url').inputValue(), 'https://mobile.example.com');
   await page.locator('#relay-url').fill('');
   await page.locator('#save-relay').click();
   assert.equal(await page.evaluate(() => window.updateFixture.status.relay.state), 'disabled');
-  await page.locator('#close-settings').click();
+  await page.locator('#open-home').click();
   await page.clock.runFor(100);
   await page.locator('#link-phone').click();
-  assert.equal(await page.locator('#preferences-dialog').isVisible(), true);
+  assert.equal(await page.locator('#settings-page').isVisible(), true);
   assert.equal(await page.locator('#relay-url').evaluate(el => document.activeElement === el), true);
   assert.equal(await page.evaluate(() => window.updateFixture.calls.includes('link_relay_desktop')), false);
   results.push({ id: 'HOST-010', scenario: 'connection-config-draft-failure-retry-normalization-disable', status: 'passed' });
@@ -129,17 +127,28 @@ try {
   await page.locator('#launch-on-login').check();
   assert.equal(await page.locator('#launch-on-login').isChecked(), true);
   assert.equal(await page.evaluate(() => window.updateFixture.status.config.autoStart), false, '系统自启不修改服务自启');
-  await page.evaluate(() => { window.updateFixture.failure = 'set_desktop_launch'; });
-  await page.locator('#desktop-launch').click();
-  assert.equal(await page.locator('#desktop-launch').isChecked(), false);
-  await page.locator('#desktop-launch').check();
-  assert.equal(await page.locator('#desktop-launch').isChecked(), true);
-  assert.match(await page.locator('#notice').innerText(), /首次启用/);
-  await page.locator('#desktop-launch').uncheck();
-  assert.equal(await page.locator('#desktop-launch').isChecked(), false);
-  assert.equal(await page.evaluate(() => window.updateFixture.status.sync.state), 'connected');
-  assert.match(await page.locator('#notice').innerText(), /当前连接和任务继续/);
-  results.push({ id: 'HOST-011', scenario: 'persistent-launch-enable-disable-and-failure-restoration', status: 'passed' });
+  await page.evaluate(() => { window.updateFixture.status.sync = { state: 'error', message: '合成需要重开状态', restartRequired: true }; });
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('#restart-reminder').isVisible(), true);
+  assert.match(await page.locator('#reminder-copy').innerText(), /任务结束后/);
+  await page.screenshot({ path: path.join(output, 'desktop-first-reminder.png') });
+  await page.getByRole('button', { name: '知道了', exact: true }).click();
+  await page.clock.runFor(5000);
+  assert.equal(await page.locator('#restart-reminder').isVisible(), false);
+  const reopened = await context.newPage();
+  await reopened.clock.install();
+  await reopened.goto(origin);
+  await reopened.evaluate(() => { window.updateFixture.status.sync = { state: 'error', message: '再次读取相同状态', restartRequired: true }; });
+  await reopened.clock.runFor(2500);
+  assert.equal(await reopened.locator('#restart-reminder').isVisible(), false, '重新打开也不重复自动提醒');
+  await reopened.locator('#retry-sync').click();
+  assert.equal(await reopened.locator('#restart-reminder').isVisible(), true, '仍可主动查看提醒');
+  await reopened.keyboard.press('Escape');
+  assert.equal(await reopened.evaluate(() => window.updateFixture.calls.includes('retry_sync')), false);
+  await reopened.close();
+  await page.evaluate(() => { window.updateFixture.status.sync = { state: 'connected', message: '模拟已连接' }; });
+  await page.clock.runFor(2500);
+  results.push({ id: 'HOST-011', scenario: 'restart-reminder-once-after-confirmation-and-manual-reopen', status: 'passed' });
   await page.locator('#theme').selectOption('dark');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.evaluate(() => localStorage.getItem('codex-mobile-desktop-theme')), 'dark');
@@ -158,52 +167,32 @@ try {
   for (const viewport of [{ width: 1000, height: 840 }, { width: 720, height: 580 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     await page.locator('#relay-url').scrollIntoViewIfNeeded();
-    assert.equal(await page.locator('#preferences-dialog').evaluate(el => el.scrollWidth <= el.clientWidth), true);
-    assert.equal(await page.locator('.preferences-body').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    assert.equal(await page.locator('#settings-page').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.locator('#save-relay').scrollIntoViewIfNeeded();
     assert.equal(await page.locator('#save-relay').evaluate(el => {
       const rect = el.getBoundingClientRect();
-      return rect.width >= 44 && rect.height >= 48 && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el;
+      return rect.width >= 44 && rect.height >= 44 && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el;
     }), true);
-    await page.locator('#desktop-launch').scrollIntoViewIfNeeded();
-    assert.equal(await page.locator('#desktop-launch-settings').evaluate(el => el.scrollWidth <= el.clientWidth), true);
     await page.clock.runFor(300);
     await page.screenshot({ path: path.join(output, `desktop-settings-${viewport.width}x${viewport.height}.png`) });
   }
   results.push({ id: 'UI-007', scenario: 'desktop-settings-four-viewports-no-clipped-actions', status: 'passed' });
   await page.setViewportSize({ width: 1000, height: 840 });
-  await page.locator('#service-settings > summary').click();
-  await page.locator('#port').fill('5432');
-  await page.locator('#bind').selectOption('0.0.0.0');
-  await page.locator('#auto-start').check();
-  await page.locator('#save-service').click();
-  assert.deepEqual(await page.evaluate(() => window.updateFixture.status.config), { port: 5432, bind: '0.0.0.0', publicUrl: '', autoStart: true });
-  await page.locator('#settings-service').click();
-  assert.equal(await page.locator('#settings-service').innerText(), '启动服务');
-  await page.locator('#settings-service').click();
-  assert.equal(await page.locator('#settings-service').innerText(), '停止服务');
-  await page.locator('#service-settings > summary').click();
-  assert.deepEqual(await page.evaluate(() => window.updateFixture.calls.filter(command => ['pairing', 'rotate_key', 'diagnostics'].includes(command))), []);
-  await page.locator('#close-settings').click();
-  await page.clock.runFor(100);
-  await page.waitForFunction(() => document.activeElement === document.querySelector('#open-settings'));
-  assert.equal(await page.locator('#open-settings').evaluate(el => document.activeElement === el), true);
+  await page.locator('#open-home').click();
+  assert.equal(await page.locator('#connect-title').evaluate(el => document.activeElement === el), true);
+  await page.evaluate(() => { window.updateFixture.status.service = { running: false, error: '合成服务启动失败' }; });
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('#service-issue').isVisible(), true);
+  await page.locator('#toggle-service').click();
+  assert.equal(await page.locator('#service-issue').isVisible(), false);
+  assert.deepEqual(await page.evaluate(() => window.updateFixture.calls.filter(command => ['pairing', 'rotate_key', 'diagnostics', 'save_config', 'set_desktop_launch', 'stop_service'].includes(command))), []);
+  results.push({ id: 'HOST-010', scenario: 'service-recovery-without-removed-configuration-commands', status: 'passed' });
   await page.locator('#open-settings').click();
-  results.push({ id: 'HOST-010', scenario: 'service-and-dialog-focus-without-lan-or-diagnostics-ui', status: 'passed' });
-
-  await page.evaluate(() => { window.updateFixture.status.relay.hasToken = true; });
-  await page.clock.runFor(2500);
-  await page.locator('#legacy-relay-token > summary').click();
   await page.locator('#relay-url').fill('https://mobile.example.com');
-  await page.locator('#relay-token').fill('synthetic-legacy-token');
   await page.locator('#save-relay').click();
-  assert.equal(await page.locator('#relay-token').inputValue(), '');
-  assert.equal(await page.evaluate(() => window.updateFixture.requests.filter(r => r.command === 'configure_relay').at(-1).args.token), 'synthetic-legacy-token');
-  await page.evaluate(() => { window.updateFixture.status.relay.hasToken = false; });
-  await page.clock.runFor(2500);
-  results.push({ id: 'HOST-010', scenario: 'existing-legacy-key-remains-editable-and-clears-after-save', status: 'passed' });
-  await page.locator('#close-settings').click();
-  await page.clock.runFor(100);
+  assert.equal(await page.evaluate(() => Object.hasOwn(window.updateFixture.requests.filter(r => r.command === 'configure_relay').at(-1).args, 'token')), false);
+  await page.locator('#open-home').click();
   await page.locator('#link-phone').click();
   assert.equal(await page.locator('#relay-invite').isVisible(), true);
   assert.equal(await page.locator('#relay-qr').evaluate(el => el.width), 240);
@@ -217,10 +206,38 @@ try {
   assert.match(await page.locator('#notice').innerText(), /二维码已过期/);
   assert.deepEqual(await page.evaluate(() => window.updateFixture.calls.filter(command => ['pairing', 'rotate_key', 'diagnostics'].includes(command))), []);
   results.push({ id: 'HOST-011', scenario: 'cloud-qr-copy-and-expiry-survive-removing-lan-tools', status: 'passed' });
+  await page.locator('#link-phone').click();
+  await page.evaluate(() => {
+    const relay = window.updateFixture.status.relay;
+    relay.phones = [{ id: 'synthetic-phone', name: '测试手机', pairedAt: Date.now() }];
+    relay.linkExpiresAt = null;
+    relay.state = 'online';
+  });
+  await page.clock.runFor(2500);
+  assert.match(await page.locator('#notice').innerText(), /配对成功/);
+  assert.equal(await page.locator('#connection-issues').isVisible(), false);
+  assert.equal(await page.locator('#connection-summary').innerText(), '连接就绪');
+  await page.screenshot({ path: path.join(output, 'desktop-connected-home.png') });
+  await page.getByRole('button', { name: '撤销 测试手机', exact: true }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  assert.equal(await page.locator('#relay-phones .phone-row').count(), 1);
+  await page.getByRole('button', { name: '撤销 测试手机', exact: true }).click();
+  await page.evaluate(() => { window.updateFixture.failure = 'revoke_relay_phone'; });
+  await page.getByRole('button', { name: '确认撤销 测试手机', exact: true }).click();
+  assert.equal(await page.locator('#relay-phones .phone-row').count(), 1);
+  await page.getByRole('button', { name: '确认撤销 测试手机', exact: true }).click();
+  assert.equal(await page.locator('#relay-no-phones').isVisible(), true);
+  for (const viewport of [{ width: 1000, height: 840 }, { width: 720, height: 580 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(output, `desktop-home-${viewport.width}x${viewport.height}.png`), fullPage: true });
+  }
+  await page.setViewportSize({ width: 1000, height: 840 });
+  results.push({ id: 'HOST-012', scenario: 'pairing-completion-revoke-cancel-failure-retry-and-home-viewports', status: 'passed' });
   await page.locator('#open-settings').click();
   const check = page.locator('#check-update');
   assert.equal(await page.locator('#update-settings, #token-form, #token-help').count(), 0);
-  assert.doesNotMatch(await page.locator('#preferences-dialog').innerText(), /GitHub token|更新来源/);
+  assert.doesNotMatch(await page.locator('#settings-page').innerText(), /GitHub token|更新来源/);
   await page.clock.runFor(300);
   await page.screenshot({ path: path.join(output, 'desktop-public-update.png') });
   results.push({ id: 'UPDATE-011', scenario: 'public-update-without-source-or-token-settings', status: 'passed' });

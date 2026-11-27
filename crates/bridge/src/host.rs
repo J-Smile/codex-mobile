@@ -208,20 +208,6 @@ impl Host {
         }
         Ok(())
     }
-    pub async fn configure_desktop_launch(&self, binaries: PathBuf, enabled: bool) -> Result<()> {
-        let task = self.desktop_task.lock().await;
-        if task.as_ref().is_some_and(|task| !task.is_finished()) {
-            return Err(BridgeError::unavailable(
-                "正在连接 Codex，请连接结束后再修改启动配置。",
-            ));
-        }
-        let paths = self.paths.clone();
-        tokio::task::spawn_blocking(move || {
-            runtime::configure_desktop_launch(&paths, &binaries, enabled)
-        })
-        .await
-        .map_err(|error| BridgeError::unavailable(error.to_string()))?
-    }
     pub async fn connect_desktop(self: &Arc<Self>, binaries: PathBuf) {
         let mut task = self.desktop_task.lock().await;
         if task.as_ref().is_some_and(|task| !task.is_finished()) {
@@ -239,6 +225,7 @@ impl Host {
             Some(json!({"state":"connecting","message":"正在连接 Codex…"}));
         let host = self.clone();
         *task = Some(tokio::spawn(async move {
+            let mut restart_required = false;
             let result = tokio::time::timeout(Duration::from_secs(45), async {
                 if host.updates.packaged {
                     let paths = host.paths.clone();
@@ -255,8 +242,9 @@ impl Host {
                     return Ok(());
                 }
                 if prepared["status"] == "restart-required" {
+                    restart_required = runtime::desktop_launch_status(&host.paths)["enabled"] == true;
                     return Err(BridgeError::unavailable(
-                        if runtime::desktop_launch_status(&host.paths)["enabled"] == true {
+                        if restart_required {
                             "自动接入已配置。请在当前任务结束后正常重开一次 Codex；以后两个应用可按任意顺序打开。"
                         } else {
                             "Codex 已在运行，但尚未接入共享连接。请退出 Codex 后点击“重新连接”。"
@@ -285,7 +273,7 @@ impl Host {
             });
             *host.desktop_connection.lock().await = result
                 .err()
-                .map(|error| json!({"state":"error","message":error.message}));
+                .map(|error| json!({"state":"error","message":error.message,"restartRequired":restart_required}));
         }));
     }
     pub(crate) fn request_mobile_update(&self) -> Result<()> {
