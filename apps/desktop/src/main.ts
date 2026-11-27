@@ -1,9 +1,10 @@
 import QRCode from 'qrcode';
-import { request, type Status, type Pairing, type RelayPairing, type Config } from './api';
+import { request, type Status, type RelayPairing, type Config } from './api';
 import './style.css';
 
 const savedTheme = localStorage.getItem('codex-mobile-desktop-theme');
-document.documentElement.dataset.theme = savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+document.documentElement.dataset.theme = savedTheme || (systemTheme.matches ? 'dark' : 'light');
 document.querySelector('#app')!.innerHTML = `
   <header class="app-bar">
     <div class="brand"><img src="/icon.svg" width="28" height="28" alt="">Codex Mobile</div>
@@ -45,7 +46,7 @@ document.querySelector('#app')!.innerHTML = `
           <p id="service-error" class="error-text" role="alert" hidden></p>
         </div>
         <div class="status-cell" data-feedback>
-          <div class="status-row sync-row"><div class="status-copy"><h3><span id="sync-dot" class="status-dot" aria-hidden="true"></span>Codex 同步</h3><p id="sync-state" role="status">正在读取…</p></div><button id="open-codex-action" class="secondary-button" disabled>打开 Codex</button></div>
+          <div class="status-copy"><h3><span id="sync-dot" class="status-dot" aria-hidden="true"></span>Codex 同步</h3><p id="sync-state" role="status">正在读取…</p></div>
           <p id="sync-error" class="error-text" role="alert" hidden></p>
           <div id="sync-actions" class="inline-actions" hidden><button id="retry-sync" class="secondary-button" disabled>重新连接</button></div>
         </div>
@@ -54,24 +55,35 @@ document.querySelector('#app')!.innerHTML = `
         </div>
       </section>
     </div>
-    <footer>关闭窗口后继续在托盘运行</footer>
   </main>
   <dialog id="preferences-dialog" aria-labelledby="settings-title">
     <div class="preferences">
       <header class="preferences-header"><h2 id="settings-title">设置</h2><button id="close-settings" class="quiet-button" type="button" autofocus>关闭</button></header>
       <div class="preferences-body">
+        <section id="relay-settings" class="preferences-section" aria-labelledby="connection-settings-title">
+          <h3 id="connection-settings-title">手机连接</h3>
+          <form id="relay-form" class="relay-form" data-feedback>
+            <div class="relay-fields">
+              <div><label for="relay-name">电脑名称</label><input id="relay-name" type="text" maxlength="48" placeholder="Codex 电脑" autocomplete="off"></div>
+              <div><label for="relay-url">手机网页地址</label><input id="relay-url" type="url" placeholder="https://mobile.example.com" autocomplete="off" spellcheck="false" aria-describedby="relay-url-hint"></div>
+            </div>
+            <p id="relay-url-hint" class="hint">填写自己部署的 HTTPS 地址。留空并保存可关闭云连接。</p>
+            <details id="legacy-relay-token" hidden><summary>旧版接入密钥</summary><div class="details-body"><label for="relay-token">替换密钥</label><input id="relay-token" type="password" autocomplete="off" placeholder="留空保留已保存的密钥"></div></details>
+            <button id="save-relay" class="secondary-button" type="submit" disabled>保存连接</button>
+          </form>
+        </section>
         <section class="preferences-section" aria-labelledby="general-title">
           <h3 id="general-title">通用</h3>
           <div class="preference-group" data-feedback>
             <label class="startup-row" for="launch-on-login">
-              <span><strong id="startup-title">开机启动</strong><span id="startup-hint" class="hint">登录后在托盘运行</span></span>
+              <span><strong id="startup-title">登录时启动</strong><span id="startup-hint" class="hint" hidden></span></span>
               <span class="startup-switch">
                 <input id="launch-on-login" type="checkbox" role="switch" aria-labelledby="startup-title" aria-describedby="startup-hint" disabled>
                 <span class="startup-track" aria-hidden="true"></span>
               </span>
             </label>
           </div>
-          <div class="desktop-row"><span>外观</span><button id="theme" class="quiet-button" type="button" aria-label="切换主题">切换主题</button></div>
+          <div class="desktop-row"><label for="theme">外观</label><select id="theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
         </section>
         <section class="preferences-section" aria-labelledby="updates-title">
           <div class="section-heading"><h3 id="updates-title">软件更新</h3><span id="version" class="version"></span></div>
@@ -84,45 +96,15 @@ document.querySelector('#app')!.innerHTML = `
             </details>
           </div>
         </section>
-        <section class="preferences-section" aria-labelledby="connection-settings-title">
-          <h3 id="connection-settings-title">连接与维护</h3>
-          <details id="relay-settings"><summary>云连接设置</summary>
-            <div class="details-body" data-feedback>
-              <form id="relay-form" class="relay-form">
-                <div><label for="relay-name">电脑名称</label><input id="relay-name" type="text" maxlength="48" placeholder="例如工作电脑" autocomplete="off"></div>
-                <div><label for="relay-url">手机网页地址</label><input id="relay-url" type="url" placeholder="https://mobile.example.com" autocomplete="off"></div>
-                <div id="legacy-relay-token" hidden><label for="relay-token">原有电脑接入密钥</label><input id="relay-token" type="password" autocomplete="off" placeholder="已保存，填写可替换"></div>
-                <p class="hint">填写自己部署的手机网页 HTTPS 地址后启用云连接。清空地址可关闭。</p>
-                <button id="save-relay" class="secondary-button" type="submit" disabled>保存云连接</button>
-              </form>
-            </div>
-          </details>
-          <details id="lan-settings"><summary>局域网连接</summary>
-            <div id="lan-pairing" class="pairing-grid details-body" role="region" aria-label="局域网连接">
-              <div class="scan-column">
-                <div class="qr-frame"><canvas id="qr" width="216" height="216" aria-label="局域网连接二维码" role="img" hidden></canvas><p id="qr-empty">正在读取连接信息…</p></div>
-              </div>
-              <div class="key-field" data-feedback>
-                <label for="key">连接密钥</label>
-                <p id="key-hint" class="hint">手机与电脑在同一网络时可扫码，也可以复制密钥。</p>
-                <div class="input-action"><input id="key" type="password" readonly autocomplete="off" aria-describedby="key-hint"><button id="reveal-key" class="quiet-button" type="button" aria-pressed="false">显示</button></div>
-                <button id="copy-key" class="secondary-button" disabled><span id="copy-label">复制密钥</span></button>
-              </div>
-            </div>
-          </details>
-          <details id="service-settings"><summary>服务设置</summary>
+        <details id="service-settings" class="preferences-section"><summary>连接服务<span class="summary-hint">端口、访问范围与启动</span></summary>
             <form id="service-form" class="details-body" data-feedback>
-              <div class="field-row"><div><label for="port">端口</label><input id="port" type="number" min="1" max="65535" required></div><div><label for="bind">访问范围</label><select id="bind"><option value="0.0.0.0">本机与内网</option><option value="127.0.0.1">仅本机</option><option value="::">IPv4 与 IPv6</option></select></div></div>
+              <div class="field-row"><div><label for="port">端口</label><input id="port" type="number" min="1" max="65535" required></div><div><label for="bind">访问范围</label><select id="bind" aria-describedby="bind-hint"><option value="0.0.0.0">本机与局域网</option><option value="127.0.0.1">仅本机</option><option value="::">IPv4 与 IPv6</option></select></div></div>
+              <p id="bind-hint" class="hint">仅使用云连接时可选「仅本机」；手机直连需允许局域网访问。</p>
               <label class="checkbox-label"><input id="auto-start" type="checkbox">打开程序时自动启动连接服务</label>
+              <p class="hint">更改端口或访问范围会重启连接服务，手机会短暂断开。</p>
               <div class="inline-actions"><button id="save-service" class="secondary-button" type="submit" disabled>保存设置</button><button id="settings-service" class="quiet-button" type="button" disabled>停止服务</button></div>
             </form>
-          </details>
-          <details><summary>诊断与密钥</summary><div class="details-body" data-feedback>
-            <div class="desktop-row"><div><strong>官方 Codex</strong><p id="runtime-state" class="hint">正在读取状态…</p></div><button id="open-codex" class="quiet-button" disabled>打开 Codex</button></div>
-            <div class="diagnostic-actions"><button id="copy-diagnostics" class="secondary-button" disabled>复制诊断信息</button><button id="rotate-key" class="quiet-button" disabled>刷新连接密钥</button></div>
-            <div id="rotate-confirm" class="inline-confirm" hidden><p>旧二维码和密钥将失效，已连接的手机需要重新配对。</p><button id="confirm-rotate" class="secondary-button">确认刷新</button><button id="cancel-rotate" class="quiet-button">取消</button></div>
-          </div></details>
-        </section>
+        </details>
       </div>
     </div>
   </dialog>`;
@@ -133,17 +115,14 @@ const field = (id: string) => element<HTMLInputElement>(id);
 const preferences = element<HTMLDialogElement>('preferences-dialog');
 const pairedDate = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 let state: Status | undefined;
-let pairing: Pairing | undefined;
 let relayPairing: RelayPairing | undefined;
 let inviteVisible = false;
 let invitedPhoneCount = 0;
 let phoneRows = '';
 let confirmPhone = '';
 let busy = false;
-let lastQr = '';
 let startupEnabled: boolean | undefined;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-let copyReset: ReturnType<typeof setTimeout>;
 
 function feedback(text: string, error = false) {
   const changed = element('notice').textContent !== text;
@@ -181,7 +160,6 @@ function render() {
   statusText('sync-error', syncError);
   element('service-error').hidden = !state.service.error;
   element('service-error').textContent = state.service.error || '';
-  statusText('runtime-state', launching ? '正在连接 Codex…' : syncError || state.runtime.message);
   element('version').textContent = `v${state.version}`;
   const settings = state.updateSettings;
   const mode = settings.mode === 'source' ? '当前为源码运行。发布安装包后可使用自动升级。' : settings.mode === 'paused' ? '自动升级已暂停，可手动检查更新。' : '自动检查正式版本。';
@@ -196,21 +174,14 @@ function render() {
     element('release-date').hidden = !state.release.publishedAt;
   }
   button('apply-update').textContent = state.update.version ? '安装 v' + state.update.version + ' 并重启' : '安装并重启';
-  for (const id of ['toggle-service', 'settings-service', 'save-service', 'copy-diagnostics', 'rotate-key', 'confirm-rotate']) button(id).disabled = busy;
   for (const id of ['toggle-service', 'settings-service', 'save-service']) button(id).disabled = busy || launching;
-  button('open-codex').disabled = busy || launching;
-  button('open-codex-action').disabled = busy || launching;
-  element('sync-actions').hidden = state.sync.state !== 'error';
+  element('sync-actions').hidden = !running || synced || launching;
   button('retry-sync').disabled = busy || launching;
-  button('copy-key').disabled = busy || !pairing;
   button('check-update').disabled = busy || settings.mode === 'source' || state.update.phase === 'checking' || state.update.phase === 'applying';
   button('apply-update').hidden = state.update.phase !== 'ready';
   button('apply-update').disabled = busy;
   field('launch-on-login').disabled = busy || startupEnabled === undefined;
   if (!busy) field('launch-on-login').checked = startupEnabled === true;
-  element('qr').hidden = !pairing || !running;
-  element('qr-empty').hidden = !!pairing && running;
-  element('qr-empty').textContent = !running ? '启动连接服务后\n显示二维码' : '正在读取连接密钥…';
   const relay = state.relay;
   statusText('relay-state', ({
     disabled: '未启用', stopped: '等待启动服务', unlinked: '待手机扫码', connecting: '连接中…', online: '已连接',
@@ -220,6 +191,8 @@ function render() {
   element('device-name').hidden = !relay.name;
   element('device-label').textContent = relay.name;
   button('save-relay').disabled = busy;
+  for (const id of ['relay-url', 'relay-name', 'relay-token']) field(id).disabled = button('save-relay').getAttribute('aria-busy') === 'true';
+  for (const id of ['port', 'bind', 'auto-start']) field(id).disabled = button('save-service').getAttribute('aria-busy') === 'true';
   const invitation = !!relayPairing && relay.linkExpiresAt === relayPairing.expiresAt && relayPairing.expiresAt > Date.now();
   const restorePairingFocus = inviteVisible && !invitation && document.activeElement === button('copy-relay');
   button('link-phone').textContent = !relay.url ? '配置云连接' : invitation ? '刷新二维码' : '手机扫码连接';
@@ -227,7 +200,7 @@ function render() {
   element('pair-art').hidden = invitation;
   element('invite-hint').hidden = !invitation;
   element('connect-hint').hidden = !!relay.url && running;
-  element('connect-hint').textContent = relay.url ? '生成二维码时会启动连接服务。' : '先配置自己的中转服务器；同一网络可在设置中使用局域网连接。';
+  element('connect-hint').textContent = relay.url ? '生成二维码时会启动连接服务。' : '先在设置中填写手机网页地址，再扫码连接。';
   button('copy-relay').disabled = busy;
   button('copy-relay').hidden = !invitation;
   element('relay-invite').hidden = !invitation;
@@ -302,18 +275,6 @@ function render() {
     }));
   }
 }
-async function updateQr() {
-  if (pairing && lastQr !== pairing.accessKey) {
-    await QRCode.toCanvas(element<HTMLCanvasElement>('qr'), pairing.accessKey, { width: 216, margin: 2, errorCorrectionLevel: 'M' });
-    lastQr = pairing.accessKey;
-    element('qr').animate([{ opacity: .35, transform: reducedMotion.matches ? 'none' : 'scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: reducedMotion.matches ? 100 : 260, easing: 'cubic-bezier(.16,1,.3,1)' });
-  }
-  render();
-}
-async function refreshPairing() {
-  pairing = await request<Pairing>('pairing');field('key').value = pairing.accessKey;
-  await updateQr();
-}
 async function refresh(initial = false) {
   state = await request<Status>('status');
   if (initial) {
@@ -343,8 +304,6 @@ const on = (id: string, message: string, action: () => Promise<void>) => button(
 button('open-settings').addEventListener('click', () => preferences.showModal());
 button('close-settings').addEventListener('click', () => preferences.close());
 preferences.addEventListener('close', () => {
-  if (field('key').type === 'text') button('reveal-key').click();
-  element('rotate-confirm').hidden = true;
   if (preferences.contains(element('notice'))) {
     element('relay-access').append(element('notice'));
     if (!busy) feedback('');
@@ -357,6 +316,8 @@ element('relay-form').addEventListener('submit', event => {
     state = await request<Status>('configure_relay', {
       url: field('relay-url').value, name: field('relay-name').value, token: field('relay-token').value,
     });
+    field('relay-url').value = state.relay.url;
+    field('relay-name').value = state.relay.name;
     field('relay-token').value = '';
     relayPairing = undefined;
     feedback(state.relay.url ? '云连接已保存。' : '云连接已关闭。');
@@ -364,7 +325,6 @@ element('relay-form').addEventListener('submit', event => {
 });
 on('link-phone', '正在打开二维码…', async () => {
   if (!state?.relay.url) {
-    element<HTMLDetailsElement>('relay-settings').open = true;
     preferences.showModal();
     field('relay-url').focus();
     feedback('');
@@ -387,28 +347,22 @@ on('copy-relay', '', async () => {
 });
 async function toggleService() {
   state = await request<Status>(state?.service.running ? 'stop_service' : 'start_service');
-  await refreshPairing();
   feedback(state.service.running ? '连接服务已启动。' : '连接服务已停止。');
 }
 on('toggle-service', '正在启动连接服务…', toggleService);
 on('settings-service', '正在切换连接服务…', toggleService);
 on('retry-sync','正在重新连接 Codex…', async () => { state = await request<Status>('retry_sync');feedback(''); });
-async function openCodex() {
-  state = await request<Status>('open_codex');
-  feedback('');
+const themeSelect = element<HTMLSelectElement>('theme');
+themeSelect.value = savedTheme || 'system';
+function applyTheme() {
+  document.documentElement.dataset.theme = themeSelect.value === 'system' ? (systemTheme.matches ? 'dark' : 'light') : themeSelect.value;
 }
-on('open-codex', '正在打开 Codex…', openCodex);
-on('open-codex-action', '正在打开 Codex…', openCodex);
-on('copy-key','', async () => {
-  await navigator.clipboard.writeText(pairing!.accessKey);
-  clearTimeout(copyReset);
-  statusText('copy-label', '已复制');
-  copyReset = setTimeout(() => statusText('copy-label', '复制密钥'), 1800);
-  feedback('连接密钥已复制。');
+themeSelect.addEventListener('change', () => {
+  if (themeSelect.value === 'system') localStorage.removeItem('codex-mobile-desktop-theme');
+  else localStorage.setItem('codex-mobile-desktop-theme', themeSelect.value);
+  applyTheme();
 });
-on('copy-diagnostics','', async () => { const text = await request<string>('diagnostics');await navigator.clipboard.writeText(text);feedback('诊断信息已复制。'); });
-button('reveal-key').addEventListener('click', () => { const show = field('key').type === 'password';field('key').type = show ? 'text' : 'password';button('reveal-key').textContent = show ? '隐藏' : '显示';button('reveal-key').setAttribute('aria-pressed',String(show)); });
-button('theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';document.documentElement.dataset.theme = theme;localStorage.setItem('codex-mobile-desktop-theme',theme); });
+systemTheme.addEventListener('change', applyTheme);
 field('launch-on-login').addEventListener('change', () => {
   const enabled = field('launch-on-login').checked;
   void run('launch-on-login','正在保存开机启动设置…',async () => {
@@ -416,16 +370,13 @@ field('launch-on-login').addEventListener('change', () => {
     feedback(startupEnabled ? '已开启开机启动' : '已关闭开机启动');
   });
 });
-element('service-form').addEventListener('submit', event => { event.preventDefault();void run('save-service','正在保存服务设置…',async () => { const config:Config={...state!.config,port:Number(field('port').value),bind:element<HTMLSelectElement>('bind').value,autoStart:field('auto-start').checked};state=await request<Status>('save_config',{config});await refreshPairing();feedback('服务设置已保存。'); }); });
-button('rotate-key').addEventListener('click', () => { element('rotate-confirm').hidden=false;button('confirm-rotate').focus(); });
-button('cancel-rotate').addEventListener('click', () => { element('rotate-confirm').hidden=true;button('rotate-key').focus(); });
-on('confirm-rotate','正在刷新连接密钥…', async () => { pairing=await request<Pairing>('rotate_key');field('key').value=pairing.accessKey;await updateQr();element('rotate-confirm').hidden=true;feedback('连接密钥已刷新，请重新连接手机。'); });
+element('service-form').addEventListener('submit', event => { event.preventDefault();void run('save-service','正在保存服务设置…',async () => { const config:Config={...state!.config,port:Number(field('port').value),bind:element<HTMLSelectElement>('bind').value,autoStart:field('auto-start').checked};state=await request<Status>('save_config',{config});feedback('服务设置已保存。'); }); });
 on('check-update','正在检查并准备更新…', async () => { state=await request<Status>('check_update');feedback(state.update.message); });
 on('apply-update','正在完成当前请求并切换版本…', async () => { await request('apply_update'); });
 on('release-page','', async () => { await request('open_external',{destination:'releases'}); });
 
-try { await refresh(true);await refreshPairing(); }
-catch (error) { feedback(errorMessage(error), true); statusText('service-state', '无法读取桌面状态'); statusText('qr-empty', '请从桌面程序打开此页面'); }
+try { await refresh(true); }
+catch (error) { feedback(errorMessage(error), true); statusText('service-state', '无法读取桌面状态'); }
 try { startupEnabled = await request<boolean>('get_autostart');render(); }
-catch (error) { element('startup-hint').textContent=errorMessage(error);element('startup-hint').classList.add('error-text'); }
+catch (error) { element('startup-hint').textContent=errorMessage(error);element('startup-hint').hidden=false;element('startup-hint').classList.add('error-text'); }
 setInterval(() => { if ((!busy || button('check-update').getAttribute('aria-busy') === 'true') && !document.hidden) void refresh(!state).catch(error => feedback(errorMessage(error), true)); }, 2500);

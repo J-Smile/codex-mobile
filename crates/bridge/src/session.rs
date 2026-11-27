@@ -282,7 +282,7 @@ impl Session {
         let capabilities = self.capabilities();
         if capabilities[capability] != true {
             if capability == "images" {
-                return Err(BridgeError::unavailable("原生图片控制连接尚未就绪；请在当前任务结束后从新版 Codex Mobile 打开 Codex，再重试。图片草稿已保留。").before_send());
+                return Err(BridgeError::unavailable("原生图片控制连接尚未就绪；请检查电脑客户端的 Codex 连接后重试。图片草稿已保留。").before_send());
             }
             if capability == "interactions" && capabilities["native"] == true {
                 return Err(

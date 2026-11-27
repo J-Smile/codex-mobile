@@ -19,6 +19,5 @@ export interface Status {
   updateSettings: UpdateSettings;
   release?: { version: string; notes: string; publishedAt: string | null } | null;
 }
-export interface Pairing { accessKey: string }
 export interface RelayPairing { link: string; expiresAt: number }
 export const request = <T>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args);

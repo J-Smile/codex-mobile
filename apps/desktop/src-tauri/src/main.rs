@@ -55,14 +55,6 @@ async fn save_config(state: State<'_, AppState>, config: ServiceConfig) -> Resul
     state.host.status().await
 }
 #[tauri::command]
-async fn pairing(state: State<'_, AppState>) -> Result<Value> {
-    state.host.pairing().await
-}
-#[tauri::command]
-async fn rotate_key(state: State<'_, AppState>) -> Result<Value> {
-    state.host.rotate_key().await
-}
-#[tauri::command]
 async fn configure_relay(
     state: State<'_, AppState>,
     url: &str,
@@ -96,15 +88,6 @@ async fn revoke_relay_phone(state: State<'_, AppState>, phone: &str) -> Result<V
 }
 #[tauri::command]
 async fn retry_sync(state: State<'_, AppState>) -> Result<Value> {
-    state.host.connect_desktop(state.binaries.clone()).await;
-    state.host.status().await
-}
-#[tauri::command]
-async fn diagnostics(state: State<'_, AppState>) -> Result<String> {
-    state.host.diagnostics().await
-}
-#[tauri::command]
-async fn open_codex(state: State<'_, AppState>) -> Result<Value> {
     state.host.connect_desktop(state.binaries.clone()).await;
     state.host.status().await
 }
@@ -234,16 +217,12 @@ fn main() {
             start_service,
             stop_service,
             save_config,
-            pairing,
-            rotate_key,
             configure_relay,
             relay_approval,
             link_relay_desktop,
             decide_relay_approval,
             revoke_relay_phone,
             retry_sync,
-            diagnostics,
-            open_codex,
             open_external,
             check_update,
             apply_update
