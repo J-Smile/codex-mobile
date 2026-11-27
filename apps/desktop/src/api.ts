@@ -6,6 +6,7 @@ export interface Status {
   service: { running: boolean; error: string | null };
   sync: { state: 'history-only' | 'stopped' | 'waiting' | 'connecting' | 'connected' | 'error'; message: string };
   runtime: { ready: boolean; message: string };
+  desktopLaunch?: { supported: boolean; enabled: boolean; message: string };
   relay: {
     state: 'disabled' | 'stopped' | 'unlinked' | 'connecting' | 'online' | 'offline';
     url: string;

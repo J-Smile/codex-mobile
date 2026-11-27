@@ -28,6 +28,7 @@ await context.addInitScript(() => {
     version: '0.3.28', service: { running: true, error: null },
     sync: { state: 'connected', message: '模拟已连接' }, runtime: { ready: true, message: '隔离测试' },
     relay: { state: 'disabled', url: '', name: '', hasToken: false, linkExpiresAt: null, phones: [] },
+    desktopLaunch: { supported: true, enabled: false, message: '首次启用后重开一次 Codex，以后可按任意顺序打开。关闭仅撤销后续启动配置。' },
     config: { port: 9989, bind: '127.0.0.1', publicUrl: '', autoStart: false },
     update: { phase: 'idle', message: '准备检查' },
     updateSettings: { version: '0.3.28', mode: 'automatic' }, release: null,
@@ -41,6 +42,7 @@ await context.addInitScript(() => {
     if (command === 'status') return structuredClone(status);
     if (command === 'get_autostart') return fixture.startup;
     if (command === 'set_autostart') return fixture.startup = args.enabled;
+    if (command === 'set_desktop_launch') { status.desktopLaunch.enabled = args.enabled; return structuredClone(status); }
     if (command === 'configure_relay') {
       status.relay.url = args.url.trim().replace(/\/$/, '');
       status.relay.name = args.name.trim() || 'Codex 电脑';
@@ -127,6 +129,17 @@ try {
   await page.locator('#launch-on-login').check();
   assert.equal(await page.locator('#launch-on-login').isChecked(), true);
   assert.equal(await page.evaluate(() => window.updateFixture.status.config.autoStart), false, '系统自启不修改服务自启');
+  await page.evaluate(() => { window.updateFixture.failure = 'set_desktop_launch'; });
+  await page.locator('#desktop-launch').click();
+  assert.equal(await page.locator('#desktop-launch').isChecked(), false);
+  await page.locator('#desktop-launch').check();
+  assert.equal(await page.locator('#desktop-launch').isChecked(), true);
+  assert.match(await page.locator('#notice').innerText(), /首次启用/);
+  await page.locator('#desktop-launch').uncheck();
+  assert.equal(await page.locator('#desktop-launch').isChecked(), false);
+  assert.equal(await page.evaluate(() => window.updateFixture.status.sync.state), 'connected');
+  assert.match(await page.locator('#notice').innerText(), /当前连接和任务继续/);
+  results.push({ id: 'HOST-011', scenario: 'persistent-launch-enable-disable-and-failure-restoration', status: 'passed' });
   await page.locator('#theme').selectOption('dark');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.evaluate(() => localStorage.getItem('codex-mobile-desktop-theme')), 'dark');
@@ -152,9 +165,10 @@ try {
       const rect = el.getBoundingClientRect();
       return rect.width >= 44 && rect.height >= 48 && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el;
     }), true);
-    await page.locator('#relay-url').scrollIntoViewIfNeeded();
+    await page.locator('#desktop-launch').scrollIntoViewIfNeeded();
+    assert.equal(await page.locator('#desktop-launch-settings').evaluate(el => el.scrollWidth <= el.clientWidth), true);
     await page.clock.runFor(300);
-  await page.screenshot({ path: path.join(output, `desktop-settings-${viewport.width}x${viewport.height}.png`) });
+    await page.screenshot({ path: path.join(output, `desktop-settings-${viewport.width}x${viewport.height}.png`) });
   }
   results.push({ id: 'UI-007', scenario: 'desktop-settings-four-viewports-no-clipped-actions', status: 'passed' });
   await page.setViewportSize({ width: 1000, height: 840 });

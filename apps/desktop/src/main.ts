@@ -96,6 +96,12 @@ document.querySelector('#app')!.innerHTML = `
             </details>
           </div>
         </section>
+        <section id="desktop-launch-settings" class="preferences-section" data-feedback hidden>
+          <label class="startup-row" for="desktop-launch">
+            <span><strong id="desktop-launch-title">Codex 自动接入</strong><span id="desktop-launch-hint" class="hint"></span></span>
+            <span class="startup-switch"><input id="desktop-launch" type="checkbox" role="switch" aria-labelledby="desktop-launch-title" aria-describedby="desktop-launch-hint" disabled><span class="startup-track" aria-hidden="true"></span></span>
+          </label>
+        </section>
         <details id="service-settings" class="preferences-section"><summary>连接服务<span class="summary-hint">端口、访问范围与启动</span></summary>
             <form id="service-form" class="details-body" data-feedback>
               <div class="field-row"><div><label for="port">端口</label><input id="port" type="number" min="1" max="65535" required></div><div><label for="bind">访问范围</label><select id="bind" aria-describedby="bind-hint"><option value="0.0.0.0">本机与局域网</option><option value="127.0.0.1">仅本机</option><option value="::">IPv4 与 IPv6</option></select></div></div>
@@ -182,6 +188,10 @@ function render() {
   button('apply-update').disabled = busy;
   field('launch-on-login').disabled = busy || startupEnabled === undefined;
   if (!busy) field('launch-on-login').checked = startupEnabled === true;
+  element('desktop-launch-settings').hidden = !state.desktopLaunch?.supported;
+  field('desktop-launch').disabled = busy || launching;
+  if (!busy) field('desktop-launch').checked = state.desktopLaunch?.enabled === true;
+  statusText('desktop-launch-hint', state.desktopLaunch?.message || '');
   const relay = state.relay;
   statusText('relay-state', ({
     disabled: '未启用', stopped: '等待启动服务', unlinked: '待手机扫码', connecting: '连接中…', online: '已连接',
@@ -370,6 +380,14 @@ field('launch-on-login').addEventListener('change', () => {
     feedback(startupEnabled ? '已开启开机启动' : '已关闭开机启动');
   });
 });
+field('desktop-launch').addEventListener('change', () => {
+  const enabled = field('desktop-launch').checked;
+  void run('desktop-launch', '正在保存 Codex 启动配置…', async () => {
+    state = await request<Status>('set_desktop_launch', { enabled });
+    feedback(enabled ? '已配置。首次启用后请正常重开一次 Codex，以后无需固定启动顺序。' : '已撤销后续启动配置，当前连接和任务继续运行。');
+  });
+});
+
 element('service-form').addEventListener('submit', event => { event.preventDefault();void run('save-service','正在保存服务设置…',async () => { const config:Config={...state!.config,port:Number(field('port').value),bind:element<HTMLSelectElement>('bind').value,autoStart:field('auto-start').checked};state=await request<Status>('save_config',{config});feedback('服务设置已保存。'); }); });
 on('check-update','正在检查并准备更新…', async () => { state=await request<Status>('check_update');feedback(state.update.message); });
 on('apply-update','正在完成当前请求并切换版本…', async () => { await request('apply_update'); });

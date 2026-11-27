@@ -92,6 +92,14 @@ async fn retry_sync(state: State<'_, AppState>) -> Result<Value> {
     state.host.status().await
 }
 #[tauri::command]
+async fn set_desktop_launch(state: State<'_, AppState>, enabled: bool) -> Result<Value> {
+    state
+        .host
+        .configure_desktop_launch(state.binaries.clone(), enabled)
+        .await?;
+    state.host.status().await
+}
+#[tauri::command]
 fn open_external(app: tauri::AppHandle, destination: &str) -> Result<()> {
     let url = match destination {
         "repository" => "https://github.com/J-Smile/codex-mobile",
@@ -223,6 +231,7 @@ fn main() {
             decide_relay_approval,
             revoke_relay_phone,
             retry_sync,
+            set_desktop_launch,
             open_external,
             check_update,
             apply_update

@@ -96,16 +96,15 @@ jobs:
           cat > release-notes.md <<'EOF'
           本次更新
 
-          - macOS 与 Windows 使用同一套聊天业务逻辑，开放发送、图片、模型、审批、队列、权限、工作模式、目标及聊天管理；系统差异集中在启动和连接适配。
-          - macOS 共享连接保留官方签名 CLI 和进程归属，复用官方 App Server 与 App Tools，不再按平台限制为历史只读。
-          - 两端通过同一官方实例执行归档、恢复和确认删除，支持恢复已归档聊天；删除请求保留幂等和未知结果记录。
-          - macOS 安装包生成完整 ad-hoc 资源签名，并在打包时校验，修复缺失资源签名导致的损坏提示。
+          - macOS 首次配置自动接入后，官方 Codex 和 Codex Mobile 可按任意顺序打开；Mobile 退出或更新不影响正在运行的官方任务。
+          - 设置新增「Codex 自动接入」，可撤销后续启动配置；保留用户原有 shell 配置，不修改官方应用或签名。
+          - 继续复用两端共有的共享连接及聊天业务逻辑，图片、审批、队列、模型与聊天管理保持原有语义。
 
           运行包无需 Node.js。Windows 使用安装程序或完整 ZIP，Apple 芯片 macOS 使用 DMG 或完整 ZIP。后续公开 Release 可直接检查更新，无需 GitHub token。
 
-          首次启用共享连接：待官方任务结束后正常退出 Codex，再在 Codex Mobile 首页点击“重新连接”。程序不会自动重启正在运行的官方任务。
+          首次切换：安装新版并完成自动接入配置后，等待官方任务结束，正常重开一次 Codex。以后无需固定启动顺序；程序不会自动重启官方任务。
 
-          两平台 CI 检查格式、版本、网页与 Rust 测试、relay 集成、Clippy、安装包及包内 HTTP 资源。macOS 隔离官方实例另已验证发送、图片识别、新建、模型、设置、目标、队列、停止继续、重连和聊天管理。CI 与隔离接口测试不替代实体手机或 Windows 本轮实机验收。macOS 使用 ad-hoc 签名，尚未 Apple 公证；首次打开可能仍需在系统隐私与安全性中允许。
+          两平台 CI 检查格式、版本、网页与 Rust 测试、relay 集成、Clippy、安装包及包内 HTTP 资源。本轮 macOS 隔离官方实例验证了任意启动顺序、重连、配置撤销及真实消息发送；图片识别、新建、模型、设置、目标、队列、停止继续和聊天管理沿用此前同一共享通道的验证。CI 与隔离接口测试不替代实体手机或 Windows 本轮实机验收。macOS 使用 ad-hoc 签名，尚未 Apple 公证；首次打开可能仍需在系统隐私与安全性中允许。
           EOF
           if [ "$existing" = true ]; then
             gh release upload "$RELEASE_TAG" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber

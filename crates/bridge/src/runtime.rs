@@ -11,6 +11,9 @@ use std::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(target_os = "macos")]
+#[path = "macos_launch.rs"]
+mod macos_launch;
+#[cfg(target_os = "macos")]
 #[path = "macos_proxy.rs"]
 mod macos_proxy;
 #[cfg(windows)]
@@ -20,6 +23,42 @@ mod windows_start;
 pub const CONTRACT: &str = "local-desktop-0.171.0-alpha.13-stdio-v2";
 // 两端使用同一共享协议；系统差异只在官方进程的启动和传输适配层。
 pub const SHARED_RUNTIME_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+
+pub fn desktop_launch_status(paths: &Paths) -> Value {
+    #[cfg(target_os = "macos")]
+    {
+        macos_launch::status(paths)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = paths;
+        json!({"supported":false,"enabled":false,"message":""})
+    }
+}
+
+pub fn ensure_desktop_launch(paths: &Paths, binaries: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_launch::ensure(paths, binaries)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (paths, binaries);
+        Ok(())
+    }
+}
+
+pub fn configure_desktop_launch(paths: &Paths, binaries: &Path, enabled: bool) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_launch::configure(paths, binaries, enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (paths, binaries, enabled);
+        Err(BridgeError::invalid("此系统无需配置该启动入口。"))
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeInfo {
@@ -215,6 +254,22 @@ pub fn supported_initialize(message: &Value) -> bool {
 }
 
 pub fn proxy_main(args: Vec<String>) -> Result<i32> {
+    if args.first().is_some_and(|arg| arg == "--desktop-launch") {
+        let enabled = match args.get(1).map(String::as_str) {
+            Some("enable") if args.len() == 2 => true,
+            Some("disable") if args.len() == 2 => false,
+            _ => {
+                return Err(BridgeError::invalid(
+                    "用法：--desktop-launch enable|disable",
+                ))
+            }
+        };
+        let paths = Paths::from_env(PathBuf::new())?;
+        let executable = std::env::current_exe()?;
+        configure_desktop_launch(&paths, executable.parent().unwrap(), enabled)?;
+        println!("{}", desktop_launch_status(&paths));
+        return Ok(0);
+    }
     #[cfg(target_os = "macos")]
     {
         macos_proxy::run(args)
