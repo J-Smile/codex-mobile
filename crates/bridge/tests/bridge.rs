@@ -24,6 +24,8 @@ fn desktop(f: &Fixture) -> Arc<Desktop> {
 async fn history_mode_rejects_all_native_mutations_and_old_clients_without_rpc() {
     let f = Fixture::new();
     let mock = MockDesktop::start(&f).await;
+    // 未建立共享连接时，只读行为与操作系统无关。
+    f.unpublish_runtime();
     let server = server(&f).await;
     let http = reqwest::Client::new();
     let cookie = login(&server, &http).await;
@@ -226,6 +228,8 @@ async fn login(server: &codex_mobile_bridge::http::Server, client: &reqwest::Cli
 async fn history_refresh_reports_schema_failure_without_native_recovery() {
     let f = Fixture::new();
     let mock = MockDesktop::start(&f).await;
+    // 未建立共享连接时，只读行为与操作系统无关。
+    f.unpublish_runtime();
     let server = server(&f).await;
     let client = reqwest::Client::new();
     let cookie = login(&server, &client).await;
@@ -324,7 +328,7 @@ async fn update_settings_report_running_versions_without_waiting_for_app_server(
     let settings = read().await;
     assert_eq!(
         settings["appServer"],
-        json!({"connected":true,"native":false,"controls":false,"version":"0.171.0-alpha.13"})
+        json!({"connected":true,"native":true,"controls":true,"version":"0.171.0-alpha.13"})
     );
     assert!(settings.get("token").is_none());
     assert!(settings.get("configured").is_none());

@@ -102,28 +102,7 @@ impl NativePipe {
 
     async fn respond(&self, request: &Value) -> Value {
         if request["method"] == "tools/list" {
-            let tools = [("read_thread", vec!["threadId"]), ("send_message_to_thread", vec!["threadId", "prompt"]),
-                ("create_thread", vec!["prompt", "target"]), ("list_projects", vec![]), ("list_threads", vec![]),
-                ("navigate_to_codex_page", vec!["threadId"]),
-                ("set_thread_title", vec!["title"]), ("set_thread_pinned", vec!["threadId","pinned"]),
-                ("set_thread_archived", vec!["archived"]), ("delete_thread", vec!["threadId"])]
-                .map(|(name, required)| {
-                    let mut properties = required.iter().map(|key| ((*key).into(), json!({"type":"string"}))).collect::<serde_json::Map<_,_>>();
-                    if matches!(name, "create_thread" | "send_message_to_thread") {
-                        properties.insert("model".into(), json!({"type":"string"}));
-                        properties.insert("thinking".into(), json!({"type":"string","enum":["low","high"]}));
-                    }
-                    if matches!(name, "set_thread_title" | "set_thread_pinned" | "set_thread_archived" | "delete_thread") {
-                        properties.insert("threadId".into(), json!({"type":"string"}));
-                        properties.insert("source".into(), json!({"type":"string","enum":["codex","chatgpt"]}));
-                        properties.insert("hostId".into(), json!({"type":"string"}));
-                        for field in ["pinned", "archived"] {
-                            if required.contains(&field) { properties.insert(field.into(), json!({"type":"boolean"})); }
-                        }
-                    }
-                    json!({"name":name,"namespace":"codex_app","inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
-                });
-            return json!({"tools":tools});
+            return crate::test_support::app_tools_catalog();
         }
         assert_eq!(request["method"], "tools/call");
         let args = &request["params"]["arguments"];

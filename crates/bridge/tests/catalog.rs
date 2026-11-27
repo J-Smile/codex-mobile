@@ -68,6 +68,7 @@ async fn login(server: &Server, client: &reqwest::Client) -> String {
 async fn history_catalog_never_claims_native_projects_or_opens_a_runtime() {
     let fixture = Fixture::new();
     let mock = MockDesktop::start(&fixture).await;
+    fixture.unpublish_runtime();
     Connection::open(fixture.paths.codex_home.join("state_5.sqlite"))
         .unwrap()
         .execute_batch("DROP TABLE projects; DROP TABLE project_roots;")
@@ -127,6 +128,7 @@ async fn history_catalog_never_claims_native_projects_or_opens_a_runtime() {
 async fn history_catalog_groups_by_latest_saved_desktop_projects_without_runtime() {
     let fixture = Fixture::new();
     let mock = MockDesktop::start(&fixture).await;
+    fixture.unpublish_runtime();
     let root = &fixture.paths.codex_home;
     let state = Connection::open(root.join("state_5.sqlite")).unwrap();
     let cwd: String = state

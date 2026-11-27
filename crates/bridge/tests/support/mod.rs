@@ -27,6 +27,12 @@ pub struct Fixture {
     pub paths: Paths,
 }
 impl Fixture {
+    pub fn unpublish_runtime(&self) {
+        let record = codex_mobile_bridge::runtime::read_runtime(&self.paths.runtime_home)
+            .unwrap()
+            .unwrap();
+        std::fs::remove_file(record.path(&self.paths.runtime_home)).unwrap();
+    }
     pub fn runtime(&self, endpoint: &str) -> codex_mobile_bridge::runtime::RuntimeInfo {
         let process = codex_mobile_bridge::process_identity::ProcessIdentity::current().unwrap();
         let runtime = codex_mobile_bridge::runtime::RuntimeInfo {
@@ -397,6 +403,39 @@ impl MockDesktop {
                 }
                 json!({"thread":self.threads.lock().await.get(id).ok_or_else(||"thread not found".to_owned())?["thread"]})
             }
+            "thread/list" => {
+                let threads = self.threads.lock().await;
+                let data: Vec<_> = threads
+                    .values()
+                    .filter(|state| {
+                        state["thread"]["attachedToThreadId"] == params["attachedToThreadId"]
+                            && (state["thread"]["archived"] == true) == (params["archived"] == true)
+                    })
+                    .map(|state| state["thread"].clone())
+                    .collect();
+                json!({"data":data,"nextCursor":null})
+            }
+            "thread/archive" | "thread/unarchive" | "thread/delete" => {
+                let mut threads = self.threads.lock().await;
+                let state = threads.get_mut(id).ok_or("thread not found")?;
+                let database = Connection::open(self.codex_home.join("state_5.sqlite")).unwrap();
+                if method == "thread/delete" {
+                    threads.remove(id);
+                    database
+                        .execute("DELETE FROM threads WHERE id=?", [id])
+                        .unwrap();
+                } else {
+                    let archived = method == "thread/archive";
+                    state["thread"]["archived"] = json!(archived);
+                    database
+                        .execute(
+                            "UPDATE threads SET archived=? WHERE id=?",
+                            params![archived, id],
+                        )
+                        .unwrap();
+                }
+                json!({})
+            }
             "thread/start" => {
                 if params["historyMode"] == "legacy" {
                     let id = uuid::Uuid::new_v4().to_string();
@@ -422,7 +461,17 @@ impl MockDesktop {
                 if self.missing_desktop_tools.load(Ordering::Acquire) {
                     json!({"data":[]})
                 } else {
-                    json!({"data":[{"name":"codex_app","authStatus":"notLoggedIn","tools":{"list_projects":{},"list_threads":{}}}]})
+                    let tools = app_tools_catalog()["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .cloned()
+                        .map(|mut tool| {
+                            tool.as_object_mut().unwrap().remove("namespace");
+                            (tool["name"].as_str().unwrap().to_owned(), tool)
+                        })
+                        .collect::<serde_json::Map<_, _>>();
+                    json!({"data":[{"name":"codex_app","authStatus":"unsupported","tools":tools}]})
                 }
             }
             "mcpServer/tool/call" => {
@@ -440,6 +489,13 @@ impl MockDesktop {
                 }
                 assert_eq!(params["server"], "codex_app");
                 let payload = match params["tool"].as_str().unwrap_or("") {
+                    "read_thread" => {
+                        let threads = self.threads.lock().await;
+                        let state = threads
+                            .get(args["threadId"].as_str().unwrap())
+                            .ok_or("thread not found")?;
+                        json!({"schemaVersion":1,"thread":{"id":args["threadId"],"kind":"codex","hostId":"local","status":"idle"},"turns":state["thread"]["turns"]})
+                    }
                     "list_projects" => {
                         json!({"schemaVersion":2,"projects":*self.projects.lock().await})
                     }
@@ -869,4 +925,30 @@ pub async fn live(
     .await
     .unwrap();
     receiver
+}
+
+// 原生管道与 MCP 使用同一份工具契约样例。
+pub fn app_tools_catalog() -> Value {
+    let tools = [("read_thread", vec!["threadId"]), ("send_message_to_thread", vec!["threadId", "prompt"]),
+        ("create_thread", vec!["prompt", "target"]), ("list_projects", vec![]), ("list_threads", vec![]),
+        ("navigate_to_codex_page", vec!["threadId"]),
+        ("set_thread_title", vec!["title"]), ("set_thread_pinned", vec!["threadId","pinned"]),
+        ("set_thread_archived", vec!["archived"]), ("delete_thread", vec!["threadId"])]
+        .map(|(name, required)| {
+            let mut properties = required.iter().map(|key| ((*key).into(), json!({"type":"string"}))).collect::<serde_json::Map<_,_>>();
+            if matches!(name, "create_thread" | "send_message_to_thread") {
+                properties.insert("model".into(), json!({"type":"string"}));
+                properties.insert("thinking".into(), json!({"type":"string","enum":["low","high"]}));
+            }
+            if matches!(name, "set_thread_title" | "set_thread_pinned" | "set_thread_archived" | "delete_thread") {
+                properties.insert("threadId".into(), json!({"type":"string"}));
+                properties.insert("source".into(), json!({"type":"string","enum":["codex","chatgpt"]}));
+                properties.insert("hostId".into(), json!({"type":"string"}));
+                for field in ["pinned", "archived"] {
+                    if required.contains(&field) { properties.insert(field.into(), json!({"type":"boolean"})); }
+                }
+            }
+            json!({"name":name,"namespace":"codex_app","inputSchema":{"type":"object","additionalProperties":false,"required":required,"properties":properties}})
+        });
+    json!({"tools":tools})
 }

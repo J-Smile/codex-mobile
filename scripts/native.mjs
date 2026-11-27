@@ -102,6 +102,8 @@ async function packageNative() {
     fs.cpSync(path.join(tauriRoot, 'binaries'), path.join(staging, 'bin'), { recursive: true });
   } else {
     fs.cpSync(path.join(output, 'bundle', 'macos', 'Codex Mobile.app'), path.join(staging, 'Codex Mobile.app'), { recursive: true });
+    // 打包前核对完整资源签名，避免生成下载后被 macOS 判为损坏的安装包。
+    run('codesign', ['--verify', '--deep', '--strict', path.join(staging, 'Codex Mobile.app')]);
     resources = path.join(staging, 'Codex Mobile.app', 'Contents', 'Resources');
   }
   fs.copyFileSync(path.join(tauriRoot, 'release.json'), path.join(staging, 'release.json'));

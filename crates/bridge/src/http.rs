@@ -788,7 +788,10 @@ impl Bridge {
                 _ => "unsupported",
             };
             self.session.require(capability)?;
-            self.desktop.authorize(id).await?;
+            // 聊天管理在自身入口核对官方归属；恢复已归档聊天不能先尝试加载它。
+            if operation != "manage" {
+                self.desktop.authorize(id).await?;
+            }
         }
         if operation == "interactions" && parts.len() == 5 {
             if method != Method::POST {

@@ -507,6 +507,7 @@ async fn desktop(
     key: &str,
 ) -> (Arc<Host>, Arc<MockDesktop>) {
     let mock = MockDesktop::start(fixture).await;
+    fixture.unpublish_runtime();
     mock.projects.lock().await[0]["label"] = json!(name);
     let port = TcpListener::bind("127.0.0.1:0")
         .await

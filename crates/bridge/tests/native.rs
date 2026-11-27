@@ -12,13 +12,15 @@ use std::{
 };
 
 #[tokio::test]
-#[ignore = "需要已登录官方 Windows 桌面，仅验证 Host 连接与停止，不发送消息"]
+#[ignore = "需要已登录官方桌面，仅验证 Host 连接与停止，不发送消息"]
 async fn official_native_host_connect_and_stop() {
     let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
     let data = artifact.join(format!("host-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&data).unwrap();
     let paths = Paths {
-        codex_home: dirs::home_dir().unwrap().join(".codex"),
+        codex_home: std::env::var_os("MOBILE_ACCEPTANCE_CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| dirs::home_dir().unwrap().join(".codex")),
         runtime_home: data.join("runtime"),
         web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         data_home: data.clone(),
@@ -133,7 +135,9 @@ async fn start_native_http(artifact: &Path) -> (Server, reqwest::Client, String,
         .unwrap_or_else(|| artifact.join(format!("service-{}", uuid::Uuid::new_v4())));
     std::fs::create_dir_all(&data).unwrap();
     let paths = Paths {
-        codex_home: dirs::home_dir().unwrap().join(".codex"),
+        codex_home: std::env::var_os("MOBILE_ACCEPTANCE_CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| dirs::home_dir().unwrap().join(".codex")),
         runtime_home: std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME")
             .map(PathBuf::from)
             .unwrap_or_else(|| data.join("runtime")),
@@ -342,7 +346,7 @@ async fn official_native_http_async_answer_is_delivered_once_and_restored() {
 }
 
 #[tokio::test]
-#[ignore = "需要已登录官方 Windows 桌面与授权聊天，仅验证文件引用读取，不发送消息"]
+#[ignore = "需要已登录官方桌面与授权聊天，仅验证文件引用读取，不发送消息"]
 async fn official_native_context_references_use_scoped_project() {
     let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap();
     let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
@@ -392,7 +396,7 @@ async fn official_native_context_references_use_scoped_project() {
 }
 
 #[tokio::test]
-#[ignore = "需要已登录官方 Windows 桌面及用户授权的专用测试聊天"]
+#[ignore = "需要已登录官方桌面及用户授权的专用测试聊天"]
 async fn official_native_http_send_and_reconnect() {
     let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").expect("明确授权的测试聊天 ID");
     let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
@@ -604,6 +608,75 @@ fn image_read_evidence(item: &Value, path: &Path) -> bool {
     }
 }
 
+#[tokio::test]
+#[ignore = "仅删除 MOBILE_ACCEPTANCE_DISPOSABLE_THREAD 指定的隔离样例，验证归档后确认及幂等"]
+async fn official_archived_disposable_delete_requires_confirmation_and_runs_once() {
+    let thread = std::env::var("MOBILE_ACCEPTANCE_DISPOSABLE_THREAD").unwrap();
+    let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
+    assert!(std::env::var_os("MOBILE_ACCEPTANCE_CODEX_HOME").is_some());
+    assert_ne!(std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap(), thread);
+    let (server, http, cookie, _) = start_native_http(&artifact).await;
+    let url = format!("http://{}/api/threads/{thread}/manage", server.address);
+    let archived = http
+        .post(format!("{url}?action=archive"))
+        .header("cookie", &cookie)
+        .header("x-codex-mobile-contract", "2")
+        .json(&json!({"archived":true}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        archived.status().is_success(),
+        "{}",
+        archived.text().await.unwrap()
+    );
+    assert_eq!(
+        server.app.history.metadata(&thread, false).unwrap()["archived"],
+        true
+    );
+    let rejected = http
+        .post(format!("{url}?action=delete"))
+        .header("cookie", &cookie)
+        .header("x-codex-mobile-contract", "2")
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), 400);
+    assert!(server.app.history.metadata(&thread, false).is_ok());
+    for _ in 0..2 {
+        let deleted = http
+            .post(format!("{url}?action=delete"))
+            .header("cookie", &cookie)
+            .header("x-codex-mobile-contract", "2")
+            .json(&json!({"confirm":"delete-thread"}))
+            .send()
+            .await
+            .unwrap();
+        let status = deleted.status();
+        let result: Value = deleted.json().await.unwrap();
+        assert!(status.is_success(), "{status}: {result}");
+        assert_eq!(result["deleted"], true);
+    }
+    assert_eq!(
+        server
+            .app
+            .history
+            .metadata(&thread, false)
+            .unwrap_err()
+            .status,
+        404
+    );
+    std::fs::write(
+        artifact.join("http-delete-result.json"),
+        json!({"threadId":thread,
+        "archived":true,"explicitConfirmationRequired":true,"duplicateDeletionNotDispatched":true})
+        .to_string(),
+    )
+    .unwrap();
+    server.stop().await.unwrap();
+}
+
 #[test]
 fn image_read_evidence_accepts_official_items_and_rejects_text_or_wrong_paths() {
     let path = Path::new("C:/fixture/images/uploaded-id.png");
@@ -688,7 +761,17 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
         ("multiple-images",vec![0,1],"请查看两张原生图片附件，按顺序输出每张图中的独有文字标记。不要调用工具、读取文件、运行命令、修改文件、创建聊天或启动子智能体。"),
         ("new-chat-image",vec![1],"这是原生图片首轮合成验收。只输出图中的独有文字标记，不调用工具、不读取文件、不运行命令、不创建其他聊天、不启动子智能体。"),
     ];
+    let selected_case = std::env::var("MOBILE_ACCEPTANCE_IMAGE_CASE").ok();
+    if let Some(selected) = &selected_case {
+        assert!(cases.iter().any(|(name, _, _)| name == selected));
+    }
     for (name, indices, prompt) in cases {
+        if selected_case
+            .as_ref()
+            .is_some_and(|selected| name != selected)
+        {
+            continue;
+        }
         let mut thread = source_thread.clone();
         let mut uploaded = Vec::<String>::new();
         for (position, index) in indices.iter().enumerate() {
@@ -839,12 +922,19 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
             .expect("实际轮次缺少turn_context，不能以线程设置冒充模型生效");
         let recognized = indices
             .iter()
-            .map(|index| completed_answer(&turn, &images[*index].1))
+            .map(|index| {
+                // OCR 允许短横线字形差异，字母数字标记仍须完整匹配。
+                completed_answer(&turn, &images[*index].1)
+                    || completed_answer(&turn, &images[*index].1.replace('-', "–"))
+            })
             .collect::<Vec<_>>();
         evidence.push(json!({"case":name,"requestId":request_id,"turnId":turn["id"],"recognized":recognized,
             "nativeImageInputObserved":viewed,"model":context["model"],"thinking":context["effort"],"duplicateRequestCreatedOneTurn":true}));
         std::fs::write(
-            artifact.join("http-images-result.json"),
+            artifact.join(selected_case.as_ref().map_or_else(
+                || "http-images-result.json".to_owned(),
+                |name| format!("http-images-{name}-result.json"),
+            )),
             serde_json::to_vec_pretty(&evidence).unwrap(),
         )
         .unwrap();

@@ -10,14 +10,16 @@ use std::{
     time::SystemTime,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(target_os = "macos")]
+#[path = "macos_proxy.rs"]
+mod macos_proxy;
 #[cfg(windows)]
 #[path = "windows_start.rs"]
 mod windows_start;
 
 pub const CONTRACT: &str = "local-desktop-0.171.0-alpha.13-stdio-v2";
-// Windows 已验收同实例官方工具、stdio、包身份和沙箱；其他平台仍只透传。
-// 没有配置或环境变量绕过平台验收。
-pub const SHARED_RUNTIME_VERIFIED: bool = cfg!(windows);
+// 两端使用同一共享协议；系统差异只在官方进程的启动和传输适配层。
+pub const SHARED_RUNTIME_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeInfo {
@@ -177,10 +179,18 @@ pub(crate) fn find_desktop_owner(
             // 启动器可能已经退出，不能因此丢弃已确认的桌面祖先进程。
             break;
         };
-        if normalized(&process.executable) != normalized(expected) {
+        let main = normalized(&process.executable) == normalized(expected);
+        let helper = expected
+            .parent()
+            .filter(|directory| directory.file_name().is_some_and(|name| name == "MacOS"))
+            .and_then(Path::parent)
+            .is_some_and(|contents| process.executable.starts_with(contents.join("Frameworks")));
+        if !main && !helper {
             break;
         }
-        owner = Some(process);
+        if main {
+            owner = Some(process);
+        }
         let Some(parent) = parent(pid).filter(|parent| *parent > 0 && *parent != pid) else {
             break;
         };
@@ -205,9 +215,12 @@ pub fn supported_initialize(message: &Value) -> bool {
 }
 
 pub fn proxy_main(args: Vec<String>) -> Result<i32> {
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     {
-        // 此平台尚未完成共享控制实机验收；保持官方签名 CLI 的父子关系和原始传输。
+        macos_proxy::run(args)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
         use std::os::unix::process::CommandExt;
         let cli = original_cli()?;
         Err(std::process::Command::new(&cli)
@@ -239,7 +252,7 @@ pub async fn proxy(args: Vec<String>) -> Result<i32> {
             windows_start::package(std::process::id()).as_ref() == Some(&package)
         })
     });
-    if !SHARED_RUNTIME_VERIFIED || !main_app_server(&args) || owner.is_none() {
+    if !SHARED_RUNTIME_SUPPORTED || !main_app_server(&args) || owner.is_none() {
         return Ok(command
             .args(args)
             .stdin(std::process::Stdio::inherit())
@@ -507,10 +520,18 @@ fn discover_desktop_from_processes(
 fn bundled_cli_path(desktop: &Path) -> Option<PathBuf> {
     let directory = desktop.parent()?;
     #[cfg(windows)]
-    let path = directory.join("resources/codex.exe");
+    {
+        let path = directory.join("resources/codex.exe");
+        path.is_file().then_some(path)
+    }
     #[cfg(unix)]
-    let path = directory.parent()?.join("Resources/codex");
-    path.is_file().then_some(path)
+    {
+        let resources = directory.parent()?.join("Resources");
+        ["codex-cli/CodexCLI.app/Contents/MacOS/codex", "codex"]
+            .iter()
+            .map(|path| resources.join(path))
+            .find(|path| path.is_file())
+    }
 }
 
 #[cfg(windows)]
@@ -556,7 +577,7 @@ pub async fn prepare_desktop(paths: &Paths, binaries: &Path) -> Result<Value> {
     if desktop.running {
         // 调用前已实测工具连接失败，旧运行时存活不能证明当前桌面已接入。
         return Ok(
-            json!({"status":if SHARED_RUNTIME_VERIFIED { "restart-required" } else { "history-only" },"desktop":desktop}),
+            json!({"status":if SHARED_RUNTIME_SUPPORTED { "restart-required" } else { "history-only" },"desktop":desktop}),
         );
     }
     let cli = desktop.cli_path.as_ref().ok_or_else(|| {
@@ -584,7 +605,7 @@ pub async fn prepare_desktop(paths: &Paths, binaries: &Path) -> Result<Value> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    if SHARED_RUNTIME_VERIFIED {
+    if SHARED_RUNTIME_SUPPORTED {
         let proxy = prepare_proxy(&paths.runtime_home, &proxy_source, cli)?;
         command
             .env("CODEX_CLI_PATH", proxy)
@@ -598,7 +619,7 @@ pub async fn prepare_desktop(paths: &Paths, binaries: &Path) -> Result<Value> {
         command.creation_flags(0x08000000 | 0x00000200);
     }
     #[cfg(windows)]
-    if SHARED_RUNTIME_VERIFIED {
+    if SHARED_RUNTIME_SUPPORTED {
         let alias = dirs::data_local_dir()
             .map(|directory| directory.join("Microsoft/WindowsApps/chatgpt-desktop.exe"))
             .filter(|path| path.exists())
@@ -625,13 +646,55 @@ pub async fn prepare_desktop(paths: &Paths, binaries: &Path) -> Result<Value> {
     #[cfg(not(windows))]
     command.spawn()?;
     Ok(
-        json!({"status":if SHARED_RUNTIME_VERIFIED { "starting" } else { "history-only" },"desktop":desktop}),
+        json!({"status":if SHARED_RUNTIME_SUPPORTED { "starting" } else { "history-only" },"desktop":desktop}),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn desktop_owner_accepts_its_macos_helper_but_not_an_unrelated_parent() {
+        let executable = PathBuf::from("/Applications/Codex.app/Contents/MacOS/Codex");
+        let desktop = ProcessIdentity {
+            pid: 20,
+            started: "desktop".into(),
+            executable: executable.clone(),
+        };
+        let helper = ProcessIdentity { pid:30, started:"helper".into(), executable:PathBuf::from(
+            "/Applications/Codex.app/Contents/Frameworks/Codex Helper.app/Contents/MacOS/Codex Helper") };
+        let found = find_desktop_owner(
+            &executable,
+            30,
+            |pid| match pid {
+                30 => Some(helper.clone()),
+                20 => Some(desktop.clone()),
+                _ => None,
+            },
+            |pid| Some(pid - 10),
+        );
+        assert_eq!(found, Some(desktop));
+        assert!(find_desktop_owner(
+            &executable,
+            30,
+            |pid| (pid == 30).then(|| helper.clone()),
+            |_| Some(10)
+        )
+        .is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn desktop_discovery_prefers_the_official_signed_cli_bundle() {
+        let root = tempfile::tempdir().unwrap();
+        let desktop = root.path().join("Codex.app/Contents/MacOS/Codex");
+        let resources = root.path().join("Codex.app/Contents/Resources");
+        let signed = resources.join("codex-cli/CodexCLI.app/Contents/MacOS/codex");
+        std::fs::create_dir_all(signed.parent().unwrap()).unwrap();
+        std::fs::write(resources.join("codex"), "legacy").unwrap();
+        std::fs::write(&signed, "signed fixture").unwrap();
+        assert_eq!(bundled_cli_path(&desktop), Some(signed));
+    }
 
     #[test]
     fn desktop_owner_survives_exited_launcher_and_stops_at_other_apps() {

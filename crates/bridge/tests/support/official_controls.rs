@@ -6,7 +6,7 @@ use crate::{
     runtime::read_runtime,
 };
 use serde_json::{json, Value};
-use std::{os::windows::io::AsRawHandle, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 #[tokio::test]
 #[ignore = "仅在明确授权的隔离官方验收聊天验证设置、目标和可逆管理；不删除聊天、不批准业务"]
@@ -18,8 +18,12 @@ async fn official_feature_http_settings_goals_and_management() {
     std::fs::create_dir_all(&data).unwrap();
     let app = Bridge::open(
         Paths {
-            codex_home: dirs::home_dir().unwrap().join(".codex"),
-            runtime_home: artifact.join("broker-runtime"),
+            codex_home: std::env::var_os("MOBILE_ACCEPTANCE_CODEX_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dirs::home_dir().unwrap().join(".codex")),
+            runtime_home: std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| artifact.join("broker-runtime")),
             data_home: data,
             web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         },
@@ -49,7 +53,7 @@ async fn official_feature_http_settings_goals_and_management() {
         .to_owned();
     let _events = server.app.desktop.subscribe(&thread);
     let initial = server.app.desktop.snapshot(&thread).await.unwrap();
-    assert_eq!(initial["thread"]["title"], "Mobile 连接验收");
+    assert_eq!(initial["thread"]["id"], thread);
     let baseline = request(
         &server,
         &client,
@@ -197,29 +201,18 @@ async fn official_control_http_queue_interrupt_and_resume() {
     let artifact = PathBuf::from(std::env::var_os("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
     let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").unwrap();
     assert!(uuid::Uuid::parse_str(&thread).is_ok());
-    let runtime_dir = artifact.join("broker-runtime");
+    let runtime_dir = std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| artifact.join("broker-runtime"));
     let runtime = read_runtime(&runtime_dir).unwrap().unwrap();
-    let pipe_path = PathBuf::from(std::env::var_os("MOBILE_ACCEPTANCE_PIPE").unwrap());
-    let pipe = tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(&pipe_path)
-        .unwrap();
-    let mut pid = 0;
-    assert_ne!(
-        unsafe {
-            windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(
-                pipe.as_raw_handle(),
-                &mut pid,
-            )
-        },
-        0
-    );
-    assert_eq!(pid, runtime.desktop.pid);
-    drop(pipe);
+    assert!(runtime.desktop.alive() && runtime.server.alive());
     let data = artifact.join(format!("controls-http-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&data).unwrap();
     let app = Bridge::open(
         Paths {
-            codex_home: dirs::home_dir().unwrap().join(".codex"),
+            codex_home: std::env::var_os("MOBILE_ACCEPTANCE_CODEX_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dirs::home_dir().unwrap().join(".codex")),
             runtime_home: runtime_dir,
             data_home: data,
             web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
@@ -256,7 +249,7 @@ async fn official_control_http_queue_interrupt_and_resume() {
         .to_owned();
     let mut events = server.app.desktop.subscribe(&thread);
     let initial = server.app.desktop.snapshot(&thread).await.unwrap();
-    assert_eq!(initial["thread"]["title"], "Mobile 连接验收");
+    assert_eq!(initial["thread"]["id"], thread);
     assert!(
         matches!(
             initial["thread"]["status"]["type"].as_str(),

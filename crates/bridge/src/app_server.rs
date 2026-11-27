@@ -168,6 +168,7 @@ struct ServerRequest {
 struct Shared {
     runtime: Mutex<Option<(std::path::PathBuf, crate::runtime::RuntimeInfo)>>,
     native: Option<crate::native::NativeOwner>,
+    mcp_tools: Mutex<Option<Value>>,
     official: Mutex<Option<Arc<AppServerConnection>>>,
     pending: Mutex<HashMap<String, Pending>>,
     requests: Mutex<HashMap<String, ServerRequest>>,
@@ -220,6 +221,7 @@ impl AppServerConnection {
         let shared = Arc::new(Shared {
             runtime: Mutex::new(None),
             native: None,
+            mcp_tools: Mutex::new(None),
             official: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             requests: Mutex::new(HashMap::new()),
@@ -272,6 +274,7 @@ impl AppServerConnection {
         let shared = Arc::new(Shared {
             runtime: Mutex::new(None),
             native: Some(owner),
+            mcp_tools: Mutex::new(None),
             official: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             requests: Mutex::new(HashMap::new()),
@@ -307,11 +310,139 @@ impl AppServerConnection {
         self.shared.native.is_some()
     }
     pub fn native_tools(self: &Arc<Self>) -> Option<Arc<Self>> {
-        if self.is_native() {
+        if self.is_native() || self.shared.mcp_tools.lock().unwrap().is_some() {
             Some(self.clone())
         } else {
             self.shared.official.lock().unwrap().clone()
         }
+    }
+    pub(crate) async fn bind_mcp_tools(&self) -> Result<()> {
+        let catalog = self
+            .rpc(
+                "mcpServerStatus/list",
+                json!({
+                    "serverName":"codex_app","detail":"toolsAndAuthOnly"
+                }),
+            )
+            .await?;
+        let server = catalog["data"]
+            .as_array()
+            .and_then(|servers| servers.iter().find(|server| server["name"] == "codex_app"))
+            .ok_or_else(|| {
+                BridgeError::unavailable("官方桌面未提供 App Tools，请检查官方插件是否启用。")
+            })?;
+        let tools: Vec<Value> = server["tools"]
+            .as_object()
+            .into_iter()
+            .flat_map(|tools| tools.values())
+            .cloned()
+            .map(|mut tool| {
+                tool["namespace"] = json!("codex_app");
+                tool
+            })
+            .collect();
+        let catalog = json!({"tools":tools});
+        if !crate::native::supported_catalog(&catalog) {
+            return Err(BridgeError::unavailable(
+                "当前官方桌面工具契约不受支持，请更新官方 Codex。",
+            ));
+        }
+        *self.shared.mcp_tools.lock().unwrap() = Some(catalog);
+        Ok(())
+    }
+    pub(crate) fn tool_catalog(&self) -> Value {
+        if self.is_native() {
+            self.initialized.clone()
+        } else {
+            self.shared
+                .mcp_tools
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(Value::Null)
+        }
+    }
+    pub(crate) fn has_mcp_tools(&self) -> bool {
+        self.shared.mcp_tools.lock().unwrap().is_some()
+    }
+    pub(crate) async fn call_tool(
+        &self,
+        source: &str,
+        tool: &str,
+        args: Value,
+        request_id: Option<&str>,
+    ) -> Result<Value> {
+        let call_id = request_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        if !self.is_native() {
+            // 官方 MCP 复用同一个 App Server，使用当前操作的真实聊天上下文。
+            let thread = self.rpc("thread/read", json!({"threadId":source})).await?;
+            if thread["thread"]["id"] != source {
+                return Err(BridgeError::unavailable("官方桌面未确认当前聊天。").before_send());
+            }
+            if thread["thread"]["status"]["type"] == "notLoaded" {
+                self.rpc("codexMobile/appTools/prepare", json!({"threadId":source}))
+                    .await?;
+            }
+            let result = self.request("mcpServer/tool/call", json!({
+                "threadId":source, "server":"codex_app", "tool":tool, "arguments":args,
+                "_meta":{"threadId":source,"turnId":format!("mobile-operation-{call_id}"),"callId":call_id}
+            }), Duration::from_secs(60)).await?;
+            let text = result["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|item| item["type"] == "text")
+                .filter_map(|item| item["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            if result["isError"] == true {
+                return Err(BridgeError::unavailable(if text.is_empty() {
+                    "官方桌面未接受请求。".into()
+                } else {
+                    text
+                }));
+            }
+            return result
+                .get("structuredContent")
+                .filter(|value| value.is_object())
+                .cloned()
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    serde_json::from_str(&text).map_err(|_| {
+                        BridgeError::unavailable("官方桌面回执无法识别，请核对操作结果。")
+                    })
+                });
+        }
+        let result = self
+            .request(
+                "tools/call",
+                json!({
+                    "callerSource":"codex", "hostId":"local", "threadId":source,
+                    "turnId":format!("mobile-operation-{call_id}"), "callId":call_id,
+                    "namespace":"codex_app", "tool":tool, "arguments":args,
+                }),
+                Duration::from_secs(60),
+            )
+            .await?;
+        let text = result["contentItems"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| item["type"] == "inputText")
+            .filter_map(|item| item["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if result["success"] != true {
+            return Err(BridgeError::unavailable(if text.is_empty() {
+                "官方桌面未接受请求。".into()
+            } else {
+                text
+            }));
+        }
+        serde_json::from_str(&text)
+            .map_err(|_| BridgeError::unavailable("官方桌面回执无法识别，请核对操作结果。"))
     }
     pub(crate) fn bind_official(self: &Arc<Self>, official: Arc<Self>) -> Result<()> {
         let same_owner =
@@ -358,6 +489,14 @@ impl AppServerConnection {
             .native
             .as_ref()
             .is_some_and(|owner| owner.validate().is_ok())
+            || (self.shared.mcp_tools.lock().unwrap().is_some()
+                && self
+                    .shared
+                    .runtime
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|(directory, runtime)| runtime.validate(directory).is_ok()))
     }
 
     pub fn is_alive(&self) -> bool {

@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "codex-mobile-bridge"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -891,6 +891,7 @@ dependencies = [
  "hex",
  "if-addrs",
  "indexmap 2.14.2",
+ "libc",
  "mime_guess",
  "notify",
  "p256 0.13.2",
@@ -926,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "codex-mobile-desktop"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "codex-mobile-bridge",
  "serde",
@@ -941,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "codex-mobile-relay"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "axum",
  "base64 0.22.1",

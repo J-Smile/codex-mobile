@@ -96,14 +96,16 @@ jobs:
           cat > release-notes.md <<'EOF'
           本次更新
 
-          - 桌面设置按手机连接、通用、软件更新和连接服务整理；手机网页地址与电脑名称可直接编辑并保存。
-          - 外观支持跟随系统、浅色和深色；跟随系统时会响应系统主题变化。
-          - Codex 同步入口统一为首页“重新连接”，手机图片与工作模式提示同步调整，避免指向已移除的入口。
-          - 精简局域网二维码、密钥和诊断界面；已有直连配置、配对与认证继续保留。修改服务端口或访问范围仍会重启连接服务。
+          - macOS 与 Windows 使用同一套聊天业务逻辑，开放发送、图片、模型、审批、队列、权限、工作模式、目标及聊天管理；系统差异集中在启动和连接适配。
+          - macOS 共享连接保留官方签名 CLI 和进程归属，复用官方 App Server 与 App Tools，不再按平台限制为历史只读。
+          - 两端通过同一官方实例执行归档、恢复和确认删除，支持恢复已归档聊天；删除请求保留幂等和未知结果记录。
+          - macOS 安装包生成完整 ad-hoc 资源签名，并在打包时校验，修复缺失资源签名导致的损坏提示。
 
-          运行包无需 Node.js。Windows 使用安装程序或完整 ZIP，macOS 使用 DMG 或完整 ZIP。旧客户端若无法检查更新，请手动安装一次本版本。后续公开 Release 可直接检查更新，无需 GitHub token。
+          运行包无需 Node.js。Windows 使用安装程序或完整 ZIP，Apple 芯片 macOS 使用 DMG 或完整 ZIP。后续公开 Release 可直接检查更新，无需 GitHub token。
 
-          两平台 CI 检查格式、版本、网页与 Rust 测试、relay 集成、Clippy 和安装包构建，并验证包内 HTTP 资源。CI 不替代实体手机及安装切换验收。当前官方桌面控制以受支持的 Windows 默认 Codex 目录为准；macOS 与非默认目录继续提供历史阅读。
+          首次启用共享连接：待官方任务结束后正常退出 Codex，再在 Codex Mobile 首页点击“重新连接”。程序不会自动重启正在运行的官方任务。
+
+          两平台 CI 检查格式、版本、网页与 Rust 测试、relay 集成、Clippy、安装包及包内 HTTP 资源。macOS 隔离官方实例另已验证发送、图片识别、新建、模型、设置、目标、队列、停止继续、重连和聊天管理。CI 与隔离接口测试不替代实体手机或 Windows 本轮实机验收。macOS 使用 ad-hoc 签名，尚未 Apple 公证；首次打开可能仍需在系统隐私与安全性中允许。
           EOF
           if [ "$existing" = true ]; then
             gh release upload "$RELEASE_TAG" dist/release/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -157,6 +157,101 @@ async fn official_instance_authorizes_registered_routes_and_reconnects_without_r
 }
 
 #[tokio::test]
+async fn shared_mcp_uses_the_same_tools_and_manages_archived_threads_without_loading_them() {
+    let f = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&f).await;
+    let id = crate::native_test_support::CHAT;
+    let database = rusqlite::Connection::open(f.paths.codex_home.join("state_5.sqlite")).unwrap();
+    database
+        .execute("UPDATE threads SET id=? WHERE id='chat'", [id])
+        .unwrap();
+    mock.set_thread(id, support::official_thread(id, false))
+        .await;
+    let session = Session::new(f.paths.clone());
+    let connection = session.connect().await.unwrap();
+    assert!(connection.has_mcp_tools());
+    let desktop = Desktop::with_session(
+        f.paths.clone(),
+        Arc::new(History::new(f.paths.codex_home.clone())),
+        session.clone(),
+    );
+    let (peer, native) = crate::native_test_support::NativePipe::start(&f.paths).await;
+    *peer.projects.lock().await = json!({"schemaVersion":2,"projects":*mock.projects.lock().await});
+    assert_eq!(
+        connection
+            .call_tool(id, "list_projects", json!({}), Some("shared-call"))
+            .await
+            .unwrap(),
+        native
+            .call_tool(id, "list_projects", json!({}), Some("native-call"))
+            .await
+            .unwrap(),
+    );
+    let call = mock
+        .calls
+        .lock()
+        .await
+        .iter()
+        .find(|call| call["params"]["tool"] == "list_projects")
+        .unwrap()
+        .clone();
+    assert_eq!(call["params"]["threadId"], id);
+    assert_eq!(call["params"]["_meta"]["callId"], "shared-call");
+    for archived in [true, false, true] {
+        let receipt = desktop
+            .manage_thread(id, "archive", json!({"archived":archived}))
+            .await
+            .unwrap();
+        assert_eq!(receipt["archived"], archived);
+        assert_eq!(
+            desktop.history.metadata(id, false).unwrap()["archived"],
+            archived
+        );
+    }
+    assert!(
+        desktop
+            .manage_thread(id, "delete", json!({}))
+            .await
+            .unwrap_err()
+            .before_send
+    );
+    assert_eq!(mock.count("thread/delete").await, 0);
+    let child = crate::native_test_support::OTHER;
+    let grandchild = crate::native_test_support::CREATED;
+    for (child_id, parent, archived) in [(child, id, false), (grandchild, child, true)] {
+        let mut state = support::official_thread(child_id, false);
+        state["thread"]["attachedToThreadId"] = json!(parent);
+        state["thread"]["archived"] = json!(archived);
+        mock.set_thread(child_id, state).await;
+    }
+    assert_eq!(
+        desktop
+            .manage_thread(id, "delete", json!({"confirm":"delete-thread"}))
+            .await
+            .unwrap()["deleted"],
+        true
+    );
+    assert_eq!(mock.count("thread/archive").await, 2);
+    assert_eq!(mock.count("thread/unarchive").await, 1);
+    let deleted: Vec<String> = mock
+        .calls
+        .lock()
+        .await
+        .iter()
+        .filter(|call| call["method"] == "thread/delete")
+        .map(|call| call["params"]["threadId"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(deleted, [grandchild, child, id]);
+    assert!(mock.threads.lock().await.contains_key("other"));
+    assert_eq!(mock.count("thread/start").await, 0);
+    assert_eq!(mock.count("thread/resume").await, 0);
+    assert_eq!(mock.count("codexMobile/appTools/prepare").await, 0);
+    native.close();
+    desktop.close().await;
+    session.close().await;
+}
+
+#[tokio::test]
 async fn combined_official_connection_keeps_messages_on_app_tools_and_approvals_on_rpc() {
     let f = Fixture::new();
     let mock = MockDesktop::start_control_fixture(&f).await;

@@ -33,7 +33,7 @@ mod control_regression;
 #[cfg(test)]
 #[path = "../tests/support/native_pipe.rs"]
 pub(crate) mod native_test_support;
-#[cfg(all(test, windows))]
+#[cfg(test)]
 #[path = "../tests/support/official_controls.rs"]
 mod official_controls;
 #[cfg(test)]

@@ -8,11 +8,18 @@ use std::path::PathBuf;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 pub(crate) fn eligible(paths: &Paths) -> bool {
-    cfg!(windows)
-        && dirs::home_dir()
+    cfg!(any(windows, target_os = "macos"))
+        && (dirs::home_dir()
             .and_then(|home| std::fs::canonicalize(home.join(".codex")).ok())
             .zip(std::fs::canonicalize(&paths.codex_home).ok())
             .is_some_and(|(a, b)| a == b)
+            || crate::runtime::read_runtime(&paths.runtime_home)
+                .ok()
+                .flatten()
+                .is_some_and(|runtime| {
+                    std::fs::canonicalize(&paths.codex_home)
+                        .is_ok_and(|home| home == runtime.codex_home)
+                }))
 }
 
 #[derive(Clone)]
@@ -38,14 +45,14 @@ pub(crate) async fn discover(paths: &Paths) -> Result<(Pipe, NativeOwner)> {
     {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
-        // 当前验收只覆盖 Windows 默认 HOME；隔离测试与其他 HOME 不接入真实桌面。
+        // 自定义目录必须由当前共享运行时明确绑定，不能接入其他目录的桌面。
         if !eligible(paths) {
             return Err(
-                BridgeError::unavailable("此 Codex 目录尚未验收原生桌面连接。").before_send(),
+                BridgeError::unavailable("此 Codex 目录未与当前桌面连接绑定。").before_send(),
             );
         }
         let paths = paths.clone();
-        let expected_owner = if crate::runtime::SHARED_RUNTIME_VERIFIED {
+        let expected_owner = if crate::runtime::SHARED_RUNTIME_SUPPORTED {
             crate::runtime::read_runtime(&paths.runtime_home)
                 .ok()
                 .flatten()
@@ -119,7 +126,10 @@ pub(crate) async fn discover(paths: &Paths) -> Result<(Pipe, NativeOwner)> {
     #[cfg(not(windows))]
     {
         let _ = paths;
-        Err(BridgeError::unavailable("此平台尚未验收原生桌面控制。").before_send())
+        Err(
+            BridgeError::unavailable("请通过 Codex Mobile 打开官方桌面以建立共享连接。")
+                .before_send(),
+        )
     }
 }
 

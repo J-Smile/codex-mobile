@@ -3,9 +3,11 @@ use codex_mobile_bridge::{goals::Goals, session::Session};
 use serde_json::json;
 
 #[tokio::test]
-async fn goals_are_read_only_until_composite_actions_are_verified() {
+async fn goals_are_unavailable_without_the_official_tools_contract() {
     let f = support::Fixture::new();
     let mock = support::MockDesktop::start(&f).await;
+    mock.missing_desktop_tools
+        .store(true, std::sync::atomic::Ordering::Release);
     let session = Session::new(f.paths.clone());
     let goals = Goals::with_session(session.clone());
     assert!(
@@ -26,7 +28,7 @@ async fn goals_are_read_only_until_composite_actions_are_verified() {
         assert_eq!(mock.count(method).await, 0);
     }
     goals.close().await;
-    assert!(session.connect().await.unwrap().is_alive());
+    assert!(session.connect().await.is_err());
     session.close().await;
 }
 #[tokio::test]

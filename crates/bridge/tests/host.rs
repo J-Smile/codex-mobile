@@ -23,6 +23,7 @@ async fn wait_sync(host: &Arc<Host>, expected: &str) {
 async fn status_and_stop_do_not_connect_or_start_desktop() {
     let f = support::Fixture::new();
     let mock = support::MockDesktop::start(&f).await;
+    f.unpublish_runtime();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
@@ -77,6 +78,7 @@ async fn update_preparation_stays_exclusive_at_every_stage_and_failures_release_
 async fn desktop_connection_reports_start_failure_and_can_retry() {
     let f = support::Fixture::new();
     let _mock = support::MockDesktop::start(&f).await;
+    f.unpublish_runtime();
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     ServiceConfig {
         port: occupied.local_addr().unwrap().port(),
@@ -196,6 +198,7 @@ async fn browsers_cannot_read_or_rotate_desktop_pairing_key() {
 async fn host_distinguishes_http_from_sync_and_rotates_all_existing_sessions() {
     let f = support::Fixture::new();
     let mock = support::MockDesktop::start(&f).await;
+    f.unpublish_runtime();
     mock.reject_init.store(true, Ordering::Release);
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -361,6 +364,7 @@ async fn paired_phone_can_request_one_background_update_without_github_token() {
 async fn history_stream_keeps_native_runtime_untouched_and_rotation_closes_it() {
     let f = support::Fixture::new();
     let mock = support::MockDesktop::start(&f).await;
+    f.unpublish_runtime();
     mock.reject_init.store(true, Ordering::Release);
     let app = codex_mobile_bridge::http::Bridge::open(
         f.paths.clone(),

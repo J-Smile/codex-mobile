@@ -34,6 +34,7 @@ struct Pending {
     method: String,
     thread: Option<String>,
     ephemeral: bool,
+    confirms_local_thread: bool,
 }
 struct ServerRequest {
     message: Value,
@@ -118,6 +119,18 @@ impl Router {
                     "thread/start" | "thread/fork" => {
                         Some(Err("新建必须使用官方桌面入口，不能创建替代聊天。"))
                     }
+                    "codexMobile/appTools/prepare" => {
+                        // MCP 使用用户实际选择的已有聊天作为上下文，不创建或借用控制聊天。
+                        // 只加载工具上下文；控制归属仍须官方桌面 read_thread 回执确认。
+                        let thread = message["params"]["threadId"].as_str().unwrap_or_default();
+                        if uuid::Uuid::parse_str(thread).is_err() {
+                            Some(Err("聊天编号无效。"))
+                        } else {
+                            message["params"] = json!({"threadId":thread,"excludeTurns":true});
+                            message["method"] = json!("thread/resume");
+                            None
+                        }
+                    }
                     "codexMobile/createImage/prepare" => {
                         Some(self.prepare_image_creation(client, &message["params"]))
                     }
@@ -172,7 +185,14 @@ impl Router {
                 if let Some(thread) = message["params"]["threadId"].as_str() {
                     if !matches!(
                         method.as_str(),
-                        "thread/read" | "thread/turns/list" | "thread/items/list"
+                        "thread/read"
+                            | "thread/turns/list"
+                            | "thread/items/list"
+                            | "mcpServerStatus/list"
+                            | "mcpServer/tool/call"
+                            | "codexMobile/appTools/prepare"
+                            | "thread/unarchive"
+                            | "thread/delete"
                     ) && !self.desktop_threads.contains(thread)
                     {
                         self.deliver(client, json!({"id":id,"error":{"code":-32600,"message":"此聊天未由当前桌面 App Server 确认，不能恢复或写入。"}}));
@@ -218,6 +238,11 @@ impl Router {
                         method: method.clone(),
                         thread: message["params"]["threadId"].as_str().map(str::to_owned),
                         ephemeral: message["params"]["ephemeral"] == true,
+                        confirms_local_thread: method == "mcpServer/tool/call"
+                            && message["params"]["server"] == "codex_app"
+                            && message["params"]["tool"] == "read_thread"
+                            && message["params"]["arguments"]["threadId"]
+                                == message["params"]["threadId"],
                     },
                 );
                 message["id"] = json!(id);
@@ -320,6 +345,30 @@ impl Router {
                 .then_some(message);
         };
         if message.get("error").is_none() {
+            if pending.confirms_local_thread && message["result"]["isError"] != true {
+                let text = message["result"]["content"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|item| item["type"] == "text")
+                    .filter_map(|item| item["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let payload = message["result"]
+                    .get("structuredContent")
+                    .filter(|value| value.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::from_str(&text).unwrap_or(Value::Null));
+                if payload["schemaVersion"] == 1
+                    && payload["thread"]["kind"] == "codex"
+                    && payload["thread"]["hostId"] == "local"
+                    && payload["thread"]["id"].as_str() == pending.thread.as_deref()
+                {
+                    if let Some(thread) = &pending.thread {
+                        self.desktop_threads.insert(thread.clone());
+                    }
+                }
+            }
             if matches!(pending.method.as_str(), "thread/start" | "thread/resume") {
                 if let Some(thread) = message["result"]["thread"]["id"].as_str() {
                     if pending.client.is_none()
@@ -535,6 +584,57 @@ pub(crate) async fn run<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mcp_requires_official_local_ownership_before_enabling_controls() {
+        let thread = uuid::Uuid::new_v4().to_string();
+        for structured in [false, true] {
+            for (kind, host, id, failed, accepted) in [
+                ("codex", "local", thread.as_str(), false, true),
+                ("codex", "remote", thread.as_str(), false, false),
+                ("chatgpt", "local", thread.as_str(), false, false),
+                ("codex", "local", "different", false, false),
+                ("codex", "local", thread.as_str(), true, false),
+            ] {
+                let mut router = Router::new("instance".into());
+                let (phone, mut replies) = client();
+                router.clients.insert("phone".into(), phone);
+                let prepare = router
+                    .outgoing(
+                        Some("phone"),
+                        json!({"id":1,
+                "method":"codexMobile/appTools/prepare","params":{"threadId":thread}}),
+                        None,
+                    )
+                    .unwrap();
+                assert_eq!(prepare["method"], "thread/resume");
+                assert_eq!(
+                    prepare["params"],
+                    json!({"threadId":thread,"excludeTurns":true})
+                );
+                router.incoming(json!({"id":prepare["id"],"result":{"thread":{"id":thread}}}));
+                assert!(!router.desktop_threads.contains(&thread));
+                replies.try_recv().unwrap();
+                let read = router.outgoing(Some("phone"), json!({"id":2,"method":"mcpServer/tool/call",
+                "params":{"threadId":thread,"server":"codex_app","tool":"read_thread","arguments":{"threadId":thread}}}), None).unwrap();
+                let payload =
+                    json!({"schemaVersion":1,"thread":{"id":id,"hostId":host,"kind":kind}});
+                let mut result = json!({"isError":failed,"content":[{"type":"text","text":payload.to_string()}]});
+                if structured {
+                    result["structuredContent"] = payload;
+                    result["content"] = json!([]);
+                }
+                router.incoming(json!({"id":read["id"],"result":result}));
+                assert_eq!(router.desktop_threads.contains(&thread), accepted);
+                replies.try_recv().unwrap();
+                let control = router.outgoing(
+                    Some("phone"),
+                    json!({"id":3,"method":"thread/queue/list","params":{"threadId":thread}}),
+                    None,
+                );
+                assert_eq!(control.is_some(), accepted);
+            }
+        }
+    }
     #[test]
     fn image_creation_uses_the_official_first_turn_once() {
         let mut router = Router::new("instance".into());

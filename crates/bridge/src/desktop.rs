@@ -109,7 +109,7 @@ impl Desktop {
         })
     }
     pub async fn sync_status(&self) -> Value {
-        if (!crate::runtime::SHARED_RUNTIME_VERIFIED || !crate::native::eligible(&self.paths))
+        if (!crate::runtime::SHARED_RUNTIME_SUPPORTED || !crate::native::eligible(&self.paths))
             && self.session.status()["native"] != true
         {
             return json!({"state":"history-only","message":"本版本仅提供本机历史阅读；任务操作请在官方 Codex 完成。"});
@@ -121,7 +121,7 @@ impl Desktop {
             None if self.session.status()["controls"] == true => {
                 json!({"state":"connected","message":"已连接官方桌面，支持手机回复、审批、停止和官方队列。"})
             }
-            None if crate::runtime::SHARED_RUNTIME_VERIFIED => {
+            None if crate::runtime::SHARED_RUNTIME_SUPPORTED => {
                 json!({"state":"connected","message":"已连接官方消息通道。启用审批、停止和队列：待任务结束后退出 Codex，再从 Mobile 打开。"})
             }
             None => {
@@ -176,8 +176,8 @@ impl Desktop {
         let connection = self.session.connect().await?;
         self.check_instance(&connection).await;
         let payload = if let Some(native) = connection.native_tools() {
-            self.require_route(&native, thread).await?;
-            Self::native_call(&native, thread, tool, args, request_id).await?
+            self.native_read(&native, thread).await?;
+            native.call_tool(thread, tool, args, request_id).await?
         } else {
             self.require_route(&connection, thread).await?;
             let result = connection
@@ -245,45 +245,6 @@ impl Desktop {
         }
         Ok(payload)
     }
-    async fn native_call(
-        connection: &AppServerConnection,
-        source: &str,
-        tool: &str,
-        args: Value,
-        request_id: Option<&str>,
-    ) -> Result<Value> {
-        let call_id = request_id
-            .map(str::to_owned)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let result = connection
-            .request(
-                "tools/call",
-                json!({
-                    "callerSource":"codex", "hostId":"local", "threadId":source,
-                    "turnId":format!("mobile-operation-{call_id}"), "callId":call_id,
-                    "namespace":"codex_app", "tool":tool, "arguments":args,
-                }),
-                Duration::from_secs(60),
-            )
-            .await?;
-        let text = result["contentItems"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|item| item["type"] == "inputText")
-            .filter_map(|item| item["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        if result["success"] != true {
-            return Err(BridgeError::unavailable(if text.is_empty() {
-                "官方桌面未接受请求。".into()
-            } else {
-                text
-            }));
-        }
-        serde_json::from_str(&text)
-            .map_err(|_| BridgeError::unavailable("官方桌面回执无法识别，请核对操作结果。"))
-    }
     async fn native_read(&self, connection: &Arc<AppServerConnection>, id: &str) -> Result<Value> {
         if uuid::Uuid::parse_str(id).is_err() {
             return Err(BridgeError::invalid("聊天编号无效。").before_send());
@@ -301,7 +262,7 @@ impl Desktop {
                 let connection = connection.clone();
                 let id = id.to_owned();
                 let read = Arc::new(async move {
-                    let payload = Self::native_call(&connection, &id, "read_thread", json!({
+                    let payload = connection.call_tool(&id, "read_thread", json!({
                         "threadId":id,"hostId":"local","turnLimit":5,"includeOutputs":false,"maxOutputCharsPerItem":20000,
                     }), None).await.map_err(BridgeError::before_send)?;
                     if payload["schemaVersion"] != 1
@@ -378,8 +339,9 @@ impl Desktop {
             args["title"] = json!(title);
         }
         selection.apply(&mut args);
-        let result =
-            Self::native_call(&connection, source, "create_thread", args, Some(request_id)).await?;
+        let result = connection
+            .call_tool(source, "create_thread", args, Some(request_id))
+            .await?;
         let id = result["threadId"]
             .as_str()
             .filter(|id| uuid::Uuid::parse_str(id).is_ok());
@@ -449,11 +411,85 @@ impl Desktop {
             args["hostId"] = json!("local");
         }
         let connection = self.session.connect().await?;
+        if matches!(action, "archive" | "delete") && !connection.is_native() {
+            // 归档和删除会关闭目标聊天的 MCP；两端统一走同实例 App Server，
+            // 回执不依赖即将关闭的聊天，已归档聊天也可以恢复或明确确认后删除。
+            let metadata = self.history.metadata(id, false)?;
+            if metadata["archived"] != true {
+                self.require_route(&connection, id).await?;
+            }
+            let thread = connection
+                .rpc("thread/read", json!({"threadId":id}))
+                .await?;
+            if thread["thread"]["id"] != id {
+                return Err(BridgeError::unavailable("官方桌面未确认当前聊天。").before_send());
+            }
+            let method = match action {
+                "delete" => "thread/delete",
+                _ if args["archived"] == true => "thread/archive",
+                _ => "thread/unarchive",
+            };
+            let mut targets = vec![id.to_owned()];
+            if action == "delete" {
+                // 与官方删除入口一致，先收集活动及归档的附属聊天，再从子级删除。
+                let mut index = 0;
+                while index < targets.len() {
+                    for archived in [false, true] {
+                        let mut cursor = Value::Null;
+                        loop {
+                            let page = connection
+                                .rpc(
+                                    "thread/list",
+                                    json!({
+                                        "attachedToThreadId":targets[index],"archived":archived,
+                                        "cursor":cursor,"limit":100,"useStateDbOnly":true,
+                                    }),
+                                )
+                                .await
+                                .map_err(BridgeError::before_send)?;
+                            let rows = page["data"].as_array().ok_or_else(|| {
+                                BridgeError::unavailable("官方附属聊天清单无法识别，尚未删除。")
+                                    .before_send()
+                            })?;
+                            for row in rows {
+                                let child = row["id"]
+                                    .as_str()
+                                    .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+                                    .ok_or_else(|| {
+                                        BridgeError::unavailable("官方附属聊天编号无效，尚未删除。")
+                                            .before_send()
+                                    })?;
+                                if !targets.iter().any(|id| id == child) {
+                                    targets.push(child.to_owned());
+                                }
+                            }
+                            cursor = page["nextCursor"].clone();
+                            if cursor.is_null() {
+                                break;
+                            }
+                        }
+                    }
+                    index += 1;
+                }
+            }
+            for target in targets.into_iter().rev() {
+                connection.rpc(method, json!({"threadId":target})).await?;
+            }
+            self.native_threads.write().await.remove(id);
+            if let Some(follow) = self.follows.lock().unwrap().get(id) {
+                follow.refresh.notify_one();
+            }
+            return Ok(if action == "delete" {
+                json!({"threadId":id,"deleted":true})
+            } else {
+                json!({"threadId":id,"archived":args["archived"]})
+            });
+        }
         let native = connection
             .native_tools()
             .ok_or_else(|| BridgeError::unavailable("官方桌面消息连接已断开。").before_send())?;
         self.require_route(&native, id).await?;
-        let result = Self::native_call(&native, id, tool, args.clone(), None).await?;
+        let result = native.call_tool(id, tool, args.clone(), None).await?;
         if result["threadId"] != id
             || match action {
                 "delete" => result["deleted"] != true,
@@ -564,10 +600,16 @@ impl Desktop {
             self.native_read(connection, id).await?;
             return Ok(());
         }
-        let route = connection
+        let mut route = connection
             .rpc("codexMobile/thread/route", json!({"threadId":id}))
             .await
             .map_err(BridgeError::before_send)?;
+        if route["available"] == false && connection.has_mcp_tools() {
+            self.native_read(connection, id).await?;
+            route = connection
+                .rpc("codexMobile/thread/route", json!({"threadId":id}))
+                .await?;
+        }
         if route["threadId"] != id
             || route["instanceId"].as_str() != connection.runtime_id().as_deref()
             || route["available"] != true
@@ -1317,17 +1359,12 @@ impl Desktop {
         self.session.require("send")?;
         let connection = self.session.connect().await?;
         if let Some(native) = connection.native_tools().filter(|_| images.is_empty()) {
-            self.require_route(&native, id).await?;
+            self.native_read(&native, id).await?;
             let mut args = json!({"threadId":id,"hostId":"local","prompt":prompt});
             selection.apply(&mut args);
-            let result = Self::native_call(
-                &native,
-                id,
-                "send_message_to_thread",
-                args,
-                Some(message_id),
-            )
-            .await?;
+            let result = native
+                .call_tool(id, "send_message_to_thread", args, Some(message_id))
+                .await?;
             if result["threadId"] != id {
                 return Err(BridgeError::unavailable(
                     "发送回执的聊天编号不一致，请在桌面核对。",

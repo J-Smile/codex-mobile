@@ -70,13 +70,9 @@ impl Session {
                 return Ok(connection.clone());
             }
         }
-        let shared = if crate::runtime::SHARED_RUNTIME_VERIFIED {
-            crate::runtime::read_runtime(&self.paths.runtime_home)
-                .ok()
-                .flatten()
-        } else {
-            None
-        };
+        let shared = crate::runtime::read_runtime(&self.paths.runtime_home)
+            .ok()
+            .flatten();
         if let Some(connection) = current.as_ref().filter(|c| {
             c.is_alive()
                 && c.native_tools().is_some_and(|native| native.owner_valid())
@@ -144,10 +140,21 @@ impl Session {
                     return Err(error.before_send());
                 }
                 connection.bind_runtime(self.paths.runtime_home.clone(), runtime);
+                let needs_mcp = true;
+                #[cfg(test)]
+                let needs_mcp = needs_mcp
+                    && !self
+                        .shared_fixture
+                        .load(std::sync::atomic::Ordering::Acquire);
                 if let Some(official) = official {
                     if let Err(error) = connection.bind_official(official) {
                         connection.close();
                         return Err(error);
+                    }
+                } else if needs_mcp {
+                    if let Err(error) = connection.bind_mcp_tools().await {
+                        connection.close();
+                        return Err(error.before_send());
                     }
                 }
                 connection
@@ -226,8 +233,7 @@ impl Session {
         }
         let native = status["native"] == true;
         let connected = native && status["connected"] == true;
-        let controls =
-            connected && crate::runtime::SHARED_RUNTIME_VERIFIED && status["controls"] == true;
+        let controls = connected && status["controls"] == true;
         let desktop_navigation = connected
             && self
                 .current
@@ -238,7 +244,7 @@ impl Session {
                 .is_some_and(|connection| {
                     connection.is_alive()
                         && connection.owner_valid()
-                        && crate::native::navigation_supported(&connection.initialized)
+                        && crate::native::navigation_supported(&connection.tool_catalog())
                 });
         let management = |name| {
             connected
@@ -249,7 +255,7 @@ impl Session {
                     .as_ref()
                     .and_then(|connection| connection.native_tools())
                     .is_some_and(|connection| {
-                        crate::native::management_supported(&connection.initialized, name)
+                        crate::native::management_supported(&connection.tool_catalog(), name)
                     })
         };
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
@@ -273,10 +279,8 @@ impl Session {
             .unwrap()
             .as_ref()
             .and_then(|connection| connection.native_tools())
-            .filter(|connection| {
-                connection.is_native() && connection.is_alive() && connection.owner_valid()
-            })
-            .and_then(|connection| crate::native::model_efforts(&connection.initialized))
+            .filter(|connection| connection.is_alive() && connection.owner_valid())
+            .and_then(|connection| crate::native::model_efforts(&connection.tool_catalog()))
     }
     pub fn require(&self, capability: &str) -> Result<()> {
         let capabilities = self.capabilities();
