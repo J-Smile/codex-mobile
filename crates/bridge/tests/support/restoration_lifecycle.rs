@@ -524,6 +524,15 @@ async fn http_submission_preflight_failures_never_dispatch_or_become_unknown() {
         );
     }
     peer.reads.lock().await.get_mut(CHAT).unwrap()["thread"]["hostId"] = json!("local");
+    let (status, rejected) = result(post(&server,&client,&cookie,&format!("threads/{CHAT}/messages")).json(
+        &json!({"prompt":"图片不可降级引用","requestId":"no-image-control-connection","images":[image]}))).await;
+    assert_eq!(status, 503);
+    assert_eq!(rejected["outcome"], "not-dispatched");
+    assert_eq!(
+        lookup(&server, &client, &cookie, "no-image-control-connection").await["phase"],
+        "missing"
+    );
+    server.app.session.enable_shared_fixture();
     // 附件读取和项目检查发生在登记操作之后，必须保存可安全重试的失败事实。
     for (path, input, expected_status) in [
         (

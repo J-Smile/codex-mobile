@@ -7,13 +7,49 @@ use codex_mobile_bridge::{
     context,
     desktop::Desktop,
     history::History,
-    images::{attachment_paths, context_prompt, Images},
+    images::{attachment_paths, Images},
     notifications::Notifications,
     paths::Paths,
 };
 use serde_json::{json, Value};
 use std::{fs, sync::Arc};
 
+// 历史图片引用仍需可读，旧格式生成仅保留在回归夹具。
+fn context_prompt(prompt: &str, images: &[Value]) -> String {
+    if images.is_empty() {
+        return prompt.into();
+    }
+    let references = images
+        .iter()
+        .map(|image| {
+            let name = image["filename"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .map(|c| {
+                    if "\\[]*_`&<>".contains(c) {
+                        format!("&#{};", c as u32)
+                    } else {
+                        c.to_string()
+                    }
+                })
+                .collect::<String>();
+            format!(
+                "![{name}](<{}>)",
+                image["localPath"].as_str().unwrap_or("").replace('\\', "/")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        "图片引用（请使用读图工具查看这些本地文件）：\n\n{references}\n\n我的请求：\n{}",
+        if prompt.is_empty() {
+            "请查看这些图片。"
+        } else {
+            prompt
+        }
+    )
+}
 #[test]
 fn existing_images_keep_their_paths_and_native_attachment_format() {
     let temp = tempfile::tempdir().unwrap();

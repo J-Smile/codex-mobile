@@ -888,6 +888,7 @@ await import('./desktop-update.mjs');
 await import('./service-worker-update.mjs');
 await import('./reply-layout.mjs');
 await import('./managed-controls.mjs');
+await import('./relay-removal.mjs');
 assert.deepEqual(pageErrors, [], '页面执行不能产生未处理异常');
 assert.equal(results.filter(result => result.status === 'failed').length, 0, '浏览器回归存在失败，查看 report.json 与截图');
 console.log(`Docker browser regression: ${results.length} passed; artifacts: ${output}`);

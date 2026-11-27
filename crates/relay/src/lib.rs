@@ -13,7 +13,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
     },
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -76,7 +76,13 @@ struct DesktopRegistration {
 impl Drop for DesktopRegistration {
     fn drop(&mut self) {
         self.desktop.closed.cancel();
-        self.relay.online.lock().unwrap().remove(&self.key);
+        let mut online = self.relay.online.lock().unwrap();
+        if online
+            .get(&self.key)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.desktop))
+        {
+            online.remove(&self.key);
+        }
     }
 }
 
@@ -307,6 +313,33 @@ async fn login(
     relay.signed_in(account, &key, previous)
 }
 
+async fn remove_desktop(
+    State(relay): State<Relay>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    if !relay.mobile_allowed(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !valid_id(&id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let key = session_key(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let (account, _) = relay.mobile_session(key)?;
+    let mut online = relay.online.lock().unwrap();
+    if !relay
+        .accounts
+        .remove_desktop(&account.id, &id)
+        .map_err(database_error)?
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if let Some(desktop) = online.remove(&(account.id, id)) {
+        desktop.closed.cancel();
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn logout(
     State(relay): State<Relay>,
     headers: HeaderMap,
@@ -364,6 +397,8 @@ async fn desktop_events(
     });
     match relay.online.lock().unwrap().entry(key.clone()) {
         Entry::Vacant(entry) => {
+            // 删除与重新登记共用目录锁，旧凭据不能在撤销后重新写回设备。
+            relay.desktop_key(&headers, key.1.clone())?;
             relay
                 .accounts
                 .register_desktop(&key.0, &key.1, &name)
@@ -372,6 +407,7 @@ async fn desktop_events(
         }
         Entry::Occupied(_) => return Err(StatusCode::CONFLICT),
     }
+    let closed = desktop.closed.clone();
     let guard = DesktopRegistration {
         relay,
         key,
@@ -396,7 +432,8 @@ async fn desktop_events(
     });
     Ok(event_stream(
         futures_util::stream::once(async { Event::default().event("ready").data("ready") })
-            .chain(events),
+            .chain(events)
+            .take_until(closed.cancelled_owned()),
     ))
 }
 
@@ -545,6 +582,7 @@ pub fn router(origin: String, accounts: Accounts) -> Router {
             get(get_account).post(login).delete(logout),
         )
         .merge(passkeys::routes())
+        .route("/relay/account/desktops/{id}", delete(remove_desktop))
         .merge(desktop_approval::routes())
         .merge(desktop_link::routes())
         .route("/relay/desktop/{id}", get(desktop_events))

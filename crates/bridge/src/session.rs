@@ -254,7 +254,9 @@ impl Session {
         };
         // 全局桌面目录没有无上下文入口，不借任意聊天或临时控制线程代替。
         json!({"readLive":connected,"send":connected,"queue":controls,"catalog":false,
-            "native":native,"create":native,"images":connected,"imageReferences":native,
+            "native":native,"create":native,"images":controls && self.current.read().unwrap().as_ref()
+                .is_some_and(|connection| connection.initialized["codexMobileNativeImages"] == true),
+            "imageReferences":false,
             "desktopNavigation":desktop_navigation,
             "contextReferences":connected,
             "contextPlugins":connected,"contextBrowser":controls,"delegation":connected,
@@ -279,6 +281,9 @@ impl Session {
     pub fn require(&self, capability: &str) -> Result<()> {
         let capabilities = self.capabilities();
         if capabilities[capability] != true {
+            if capability == "images" {
+                return Err(BridgeError::unavailable("原生图片控制连接尚未就绪；请在当前任务结束后从新版 Codex Mobile 打开 Codex，再重试。图片草稿已保留。").before_send());
+            }
             if capability == "interactions" && capabilities["native"] == true {
                 return Err(
                     BridgeError::new(409, "此审批的原始控制连接已失效，请等待重新同步。")

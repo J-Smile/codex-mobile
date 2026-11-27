@@ -88,7 +88,11 @@ async fn assert_native_snapshot(mut response: reqwest::Response, thread: &str) -
     .await
     .expect("未收到原生 SSE 初始快照");
     assert_eq!(snapshot["thread"]["id"], thread);
-    assert_eq!(snapshot["syncMode"], "desktop-poll");
+    if std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME").is_none() {
+        assert_eq!(snapshot["syncMode"], "desktop-poll");
+    } else {
+        assert_ne!(snapshot["syncMode"], "desktop-poll");
+    }
     assert_eq!(snapshot["connection"], "live");
     snapshot
 }
@@ -130,7 +134,9 @@ async fn start_native_http(artifact: &Path) -> (Server, reqwest::Client, String,
     std::fs::create_dir_all(&data).unwrap();
     let paths = Paths {
         codex_home: dirs::home_dir().unwrap().join(".codex"),
-        runtime_home: data.join("runtime"),
+        runtime_home: std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data.join("runtime")),
         web_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/mobile"),
         data_home: data,
     };
@@ -146,7 +152,10 @@ async fn start_native_http(artifact: &Path) -> (Server, reqwest::Client, String,
     .unwrap();
     app.desktop.probe().await.unwrap();
     assert_eq!(app.session.capabilities()["native"], true);
-    assert_eq!(app.session.capabilities()["interrupt"], false);
+    assert_eq!(
+        app.session.capabilities()["interrupt"],
+        std::env::var_os("MOBILE_ACCEPTANCE_RUNTIME").is_some()
+    );
     let server = app.start().await.unwrap();
     let url = format!("http://{}", server.address);
     let http = reqwest::Client::new();
@@ -618,9 +627,10 @@ fn image_read_evidence_accepts_official_items_and_rejects_text_or_wrong_paths() 
 }
 
 #[tokio::test]
-#[ignore = "需显式授权的专用聊天、两张含独有标记的合成图片及model/thinking；实际发送三轮"]
+#[ignore = "需显式授权的专用聊天、两张含独有标记的合成图片及model/thinking；实际发送四轮"]
 async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
-    let thread = std::env::var("MOBILE_ACCEPTANCE_THREAD").expect("明确授权的专用测试聊天 ID");
+    let source_thread =
+        std::env::var("MOBILE_ACCEPTANCE_THREAD").expect("明确授权的专用测试聊天 ID");
     let artifact = PathBuf::from(std::env::var("MOBILE_ACCEPTANCE_DIRECTORY").unwrap());
     let images = [
         (
@@ -646,12 +656,40 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
     let config_path = server.app.paths.codex_home.join("config.toml");
     let config_before = std::fs::read(&config_path).unwrap();
     let mut evidence = Vec::new();
+    assert_eq!(server.app.session.capabilities()["images"], true);
+    let settings_url = format!("{url}/api/threads/{source_thread}/settings");
+    let baseline: Value = http
+        .get(&settings_url)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    for mode in ["plan", "default", baseline["mode"].as_str().unwrap()] {
+        let response = http
+            .post(&settings_url)
+            .header("cookie", &cookie)
+            .header("x-codex-mobile-contract", "2")
+            .json(&json!({"mode":mode}))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let result: Value = response.json().await.unwrap();
+        assert!(status.is_success(), "{status}: {result}");
+        assert_eq!(result["mode"], mode);
+        assert_eq!(result["model"], baseline["model"]);
+    }
     let cases = [
         ("image-only",vec![0],""),
-        ("text-and-image",vec![1],"请使用读图工具查看附件，只输出图中的独有文字标记。不要读取其他文件、运行命令、修改文件、创建聊天或启动子智能体。"),
-        ("multiple-images",vec![0,1],"请使用读图工具分别查看两张附件，按顺序输出每张图中的独有文字标记。不要读取其他文件、运行命令、修改文件、创建聊天或启动子智能体。"),
+        ("text-and-image",vec![1],"请查看原生图片附件，只输出图中的独有文字标记。不要调用工具、读取文件、运行命令、修改文件、创建聊天或启动子智能体。"),
+        ("multiple-images",vec![0,1],"请查看两张原生图片附件，按顺序输出每张图中的独有文字标记。不要调用工具、读取文件、运行命令、修改文件、创建聊天或启动子智能体。"),
+        ("new-chat-image",vec![1],"这是原生图片首轮合成验收。只输出图中的独有文字标记，不调用工具、不读取文件、不运行命令、不创建其他聊天、不启动子智能体。"),
     ];
     for (name, indices, prompt) in cases {
+        let mut thread = source_thread.clone();
         let mut uploaded = Vec::<String>::new();
         for (position, index) in indices.iter().enumerate() {
             let response = http
@@ -669,7 +707,17 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
             uploaded.push(image["id"].as_str().unwrap().to_owned());
         }
         let request_id = uuid::Uuid::new_v4().to_string();
-        let input = json!({"requestId":request_id,"mode":"now","prompt":prompt,"images":uploaded,"model":model,"thinking":thinking});
+        let mut input = json!({"requestId":request_id,"mode":"now","prompt":prompt,"images":uploaded,"model":model,"thinking":thinking});
+        let endpoint = if name == "new-chat-image" {
+            input.as_object_mut().unwrap().remove("mode");
+            input["sourceThreadId"] = json!(source_thread);
+            input["projectId"] =
+                json!(std::env::var("MOBILE_ACCEPTANCE_PROJECT_ID").expect("官方项目ID"));
+            input["title"] = json!("Mobile 原生图片首轮验收");
+            format!("{url}/api/threads")
+        } else {
+            format!("{url}/api/threads/{thread}/messages")
+        };
         assert!(
             indices
                 .iter()
@@ -678,7 +726,7 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
         );
         for _ in 0..2 {
             let response = http
-                .post(format!("{url}/api/threads/{thread}/messages"))
+                .post(&endpoint)
                 .header("cookie", &cookie)
                 .header("x-codex-mobile-contract", "2")
                 .json(&input)
@@ -693,7 +741,16 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
             )
             .unwrap();
             assert!(status.is_success(), "{status}: {receipt}");
-            assert_eq!(receipt["accepted"], true);
+            if name == "new-chat-image" {
+                assert_eq!(receipt["created"], true);
+                let created = receipt["threadId"].as_str().unwrap();
+                if thread != source_thread {
+                    assert_eq!(thread, created);
+                }
+                thread = created.into();
+            } else {
+                assert_eq!(receipt["accepted"], true);
+            }
         }
         let turn: Value = tokio::time::timeout(Duration::from_secs(180), async {
             loop {
@@ -743,7 +800,21 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
                 .unwrap();
             for (index, id) in uploaded.iter().enumerate() {
                 let path = server.app.paths.data_home.join("images").join(id);
-                viewed[index] |= image_read_evidence(&raw, &path);
+                viewed[index] |= raw["type"] == "userMessage"
+                    && raw["content"].as_array().is_some_and(|content| {
+                        content.iter().any(|part| {
+                            part["type"] == "localImage"
+                                && part["path"]
+                                    .as_str()
+                                    .is_some_and(|value| Path::new(value) == path)
+                        })
+                    })
+                    && codex_mobile_bridge::images::attachment_paths(
+                        &raw,
+                        &server.app.paths.data_home.join("images"),
+                    )
+                    .iter()
+                    .any(|value| Path::new(value) == path);
             }
         }
         let rollout: String = server
@@ -771,7 +842,7 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
             .map(|index| completed_answer(&turn, &images[*index].1))
             .collect::<Vec<_>>();
         evidence.push(json!({"case":name,"requestId":request_id,"turnId":turn["id"],"recognized":recognized,
-            "imageReadToolObserved":viewed,"model":context["model"],"thinking":context["effort"],"duplicateRequestCreatedOneTurn":true}));
+            "nativeImageInputObserved":viewed,"model":context["model"],"thinking":context["effort"],"duplicateRequestCreatedOneTurn":true}));
         std::fs::write(
             artifact.join("http-images-result.json"),
             serde_json::to_vec_pretty(&evidence).unwrap(),
@@ -783,7 +854,7 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
         );
         assert!(
             viewed.iter().all(|viewed| *viewed),
-            "{name}缺少读取上传图片的官方工具调用证据"
+            "{name}缺少官方 userMessage 原生图片附件证据"
         );
         assert_eq!(context["model"], model, "{name}当前轮次模型不符");
         assert_eq!(context["effort"], thinking, "{name}当前轮次思考强度不符");
@@ -793,11 +864,11 @@ async fn official_native_http_images_and_model_are_read_by_the_actual_turn() {
         );
     }
     let reconnect = http
-        .get(format!("{url}/api/threads/{thread}/events"))
+        .get(format!("{url}/api/threads/{source_thread}/events"))
         .header("cookie", &cookie)
         .send()
         .await
         .unwrap();
-    assert_native_snapshot(reconnect, &thread).await;
+    assert_native_snapshot(reconnect, &source_thread).await;
     server.stop().await.unwrap();
 }

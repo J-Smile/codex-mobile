@@ -16,6 +16,50 @@ const PROLOGUE: &[u8] = b"codex-mobile-relay/v1";
 const SESSION_HEADER: &str = "x-codex-relay-session";
 
 #[tokio::test]
+async fn account_removal_revokes_online_and_offline_devices_until_a_new_scan() {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("accounts.db");
+        let accounts = Accounts::open(&path).unwrap();
+        let owner = accounts.create("移除验收").unwrap();
+        let other = accounts.create("其他账号").unwrap();
+        let (origin, server) = relay_server(accounts).await;
+        let client = Client::new();
+        let cookie = login(&client,&origin,&owner.login_key).await;
+        let other_cookie = login(&client,&origin,&other.login_key).await;
+        let id = "a".repeat(64);
+        let offline = "b".repeat(64);
+        let mut desktop = register(&client,&origin,&id,&owner.desktop_key,"在线电脑").await;
+        drop(register(&client,&origin,&offline,&owner.desktop_key,"待配对电脑").await);
+        let remove = |target: &str| client.delete(format!("{origin}/relay/account/desktops/{target}")).header("origin",&origin);
+        assert_eq!(remove(&id).send().await.unwrap().status(),401);
+        assert_eq!(remove(&id).header("cookie",&other_cookie).send().await.unwrap().status(),404);
+        assert_eq!(client.delete(format!("{origin}/relay/account/desktops/{id}")).header("origin","https://other.invalid").header("cookie",&cookie).send().await.unwrap().status(),403);
+        for target in [&id,&offline] {
+            assert_eq!(remove(target).header("cookie",&cookie).send().await.unwrap().status(),204);
+            assert_eq!(client.get(format!("{origin}/relay/desktop/{target}")).bearer_auth(&owner.desktop_key).send().await.unwrap().status(),403);
+        }
+        while desktop.response.chunk().await.unwrap().is_some() {}
+        let account:Value=client.get(format!("{origin}/relay/account")).header("cookie",&cookie).send().await.unwrap().json().await.unwrap();
+        assert_eq!(account["desktops"],json!([]));
+        assert_eq!(remove(&id).header("cookie",&cookie).send().await.unwrap().status(),404);
+        server.abort();
+        let (origin,server)=relay_server(Accounts::open(&path).unwrap()).await;
+        let cookie=login(&client,&origin,&owner.login_key).await;
+        assert_eq!(client.get(format!("{origin}/relay/desktop/{id}")).bearer_auth(&owner.desktop_key).send().await.unwrap().status(),403);
+        let token=format!("cm_device_{}","c".repeat(43));
+        let code="d".repeat(43);
+        assert_eq!(client.post(format!("{origin}/relay/desktop/{id}/link")).bearer_auth(&token).json(&json!({"code":URL_SAFE_NO_PAD.encode(Sha256::digest(code.as_bytes())),"name":"重新扫码电脑"})).send().await.unwrap().status(),200);
+        assert_eq!(client.post(format!("{origin}/relay/account/desktop-link")).header("origin",&origin).header("cookie",&cookie).json(&json!({"code":code,"desktopId":id})).send().await.unwrap().status(),204);
+        let restored=register(&client,&origin,&id,&token,"重新扫码电脑").await;
+        assert_eq!(client.delete(format!("{origin}/relay/account/desktops/{id}")).header("origin",&origin).header("cookie",&cookie).send().await.unwrap().status(),204);
+        assert_eq!(client.get(format!("{origin}/relay/desktop/{id}")).bearer_auth(&token).send().await.unwrap().status(),403);
+        drop(restored);
+        server.abort();
+    }).await.unwrap();
+}
+
+#[tokio::test]
 async fn cloud_pairing_requires_explicit_server_and_stays_disabled_after_clearing() {
     let fixture = Fixture::new();
     let directory = &fixture.paths.data_home;

@@ -71,7 +71,7 @@ const {
   authenticated: () => authenticated.value,
   expired: expireConnection,
   capabilities: value => {
-    capabilities.value = selectedId.value ? { ...capabilities.value, create: value.create, native: value.native, modelSelection: value.modelSelection, images: value.images, imageReferences: value.imageReferences } : value;
+    capabilities.value = selectedId.value ? { ...capabilities.value, create: value.create, native: value.native, modelSelection: value.modelSelection } : value;
   },
 });
 const hasProjects = computed(() => projects.value.length > 0 || !!capabilities.value.catalog);
@@ -1726,8 +1726,7 @@ onUnmounted(() => {
         <button v-if="goalSummary" v-show="!interactionState.expanded" type="button" class="goal-summary" :disabled="!capabilities.goals" :aria-label="'查看目标：' + goalSummary.objective" @click="openGoal"><Aim /><span><strong>{{ goalSummary.objective }}</strong><small>{{ goalStatusLabels[goalSummary.status] }} · {{ goalSummary.tokensUsed.toLocaleString('zh-CN') }} Token<template v-if="goalSummary.tokenBudget !== null"> / {{ goalSummary.tokenBudget.toLocaleString('zh-CN') }}</template></small></span><ArrowRight /></button>
         <p v-if="firstTurnPending" class="muted small" role="status">聊天已创建，等待官方首轮确认；不会重复创建。</p>
         <p v-else-if="selectedId && !capabilities.send" class="muted small" role="status">当前仅供阅读，草稿会保留。</p>
-        <p v-else-if="draftImages.length && capabilities.imageReferences" class="muted small" role="status">图片上传到电脑后，通过文件引用交给 Codex 读取。</p>
-        <p v-else-if="draftImages.length && !capabilities.images" class="muted small" role="status">当前连接暂不支持图片发送，图片草稿已保留。</p>
+        <p v-else-if="draftImages.length && !capabilities.images" class="muted small" role="status">原生图片连接尚未就绪，草稿已保留。请在当前任务结束后，从新版 Codex Mobile 点击「打开 Codex」，再返回手机重试。</p>
         <div v-if="currentOperation || operationsError || ((hasMessage || resumableTurn) && sendDisabledReason)" class="composer-status muted small" role="status">
           <span>{{ operationsError || sendDisabledReason || '本聊天有一笔操作等待确认，草稿已保留。' }}</span>
           <div v-if="currentOperation || operationsError" class="composer-status-actions">
@@ -1791,7 +1790,7 @@ onUnmounted(() => {
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'default'" :disabled="!capabilities.settings || !selectedId || sending || modeBusy || streamStatus !== 'connected'" @click="changeMode('default')"><EditPen /><span>执行</span><Check v-if="currentMode === 'default'" class="mode-check" /></button>
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'plan'" :disabled="!capabilities.settings || !selectedId || sending || modeBusy || streamStatus !== 'connected'" @click="changeMode('plan')"><DocumentAdd /><span>规划</span><Check v-if="currentMode === 'plan'" class="mode-check" /></button>
               <button type="button" role="menuitemradio" :aria-checked="currentMode === 'goal'" :disabled="!capabilities.goals || sending || modeBusy" @click="openGoal"><Aim /><span>目标</span><Check v-if="currentMode === 'goal'" class="mode-check" /></button>
-              <p v-if="!capabilities.settings" class="composer-menu-hint">权限与执行、规划模式请在桌面调整，手机沿用桌面设置。</p>
+              <p v-if="!capabilities.settings" class="composer-menu-hint">工作模式控制连接尚未就绪。请在当前任务结束后，从新版 Codex Mobile 点击「打开 Codex」，连接恢复后即可切换。</p>
               <p v-else-if="!selectedId" class="composer-menu-hint">新对话沿用桌面默认模式。</p>
               <p v-if="modeBusy" class="composer-menu-hint" role="status">正在应用模式…</p>
             </motion.div>

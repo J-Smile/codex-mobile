@@ -39,6 +39,13 @@ struct ServerRequest {
     message: Value,
     recipients: HashSet<Option<String>>,
 }
+struct ImageCreation {
+    client: String,
+    output: String,
+    input: Value,
+    message_id: String,
+    thread: Option<String>,
+}
 enum Event {
     Connected(String, Client),
     Message(String, Value),
@@ -51,6 +58,7 @@ struct Router {
     pending: HashMap<String, Pending>,
     server_requests: HashMap<String, ServerRequest>,
     desktop_threads: HashSet<String>,
+    image_creations: HashMap<String, ImageCreation>,
 }
 impl Router {
     fn new(instance: String) -> Self {
@@ -61,6 +69,7 @@ impl Router {
             pending: HashMap::new(),
             server_requests: HashMap::new(),
             desktop_threads: HashSet::new(),
+            image_creations: HashMap::new(),
         }
     }
     fn deliver(&self, client: &str, message: Value) {
@@ -99,13 +108,33 @@ impl Router {
                     "codexMobile/attach" => Some(
                         initialized
                             .cloned()
-                            .map(Ok)
+                            .map(|mut value| {
+                                value["codexMobileNativeImages"] = json!(true);
+                                Ok(value)
+                            })
                             .unwrap_or_else(|| Err("官方桌面尚未完成初始化。")),
                     ),
                     "initialize" | "initialized" => Some(Err("手机不能再次初始化官方桌面后端。")),
                     "thread/start" | "thread/fork" => {
                         Some(Err("新建必须使用官方桌面入口，不能创建替代聊天。"))
                     }
+                    "codexMobile/createImage/prepare" => {
+                        Some(self.prepare_image_creation(client, &message["params"]))
+                    }
+                    "codexMobile/createImage/finish" => Some(Ok({
+                        let key = message["params"]["parentTurnId"]
+                            .as_str()
+                            .unwrap_or_default();
+                        let thread = self
+                            .image_creations
+                            .get(key)
+                            .filter(|creation| creation.client == client)
+                            .and_then(|creation| creation.thread.clone());
+                        if thread.is_some() {
+                            self.image_creations.remove(key);
+                        }
+                        json!({"threadId":thread})
+                    })),
                     "codexMobile/thread/route" => Some(Ok(
                         json!({"threadId":message["params"]["threadId"], "instanceId":self.instance,
                         "available":message["params"]["threadId"].as_str().is_some_and(|id| self.desktop_threads.contains(id))}),
@@ -151,6 +180,33 @@ impl Router {
                     }
                 }
             }
+            // 创建仍由官方工具完成；只替换本次已登记首轮的内容，保留项目、权限及官方生命周期。
+            if client.is_none() && method == "turn/start" {
+                let key = message["params"]["parentTurnId"]
+                    .as_str()
+                    .unwrap_or_default();
+                if let Some(creation) = self.image_creations.get_mut(key) {
+                    let params = &mut message["params"];
+                    if creation.thread.is_some()
+                        || params["toolOutput"]["name"] != "create_thread"
+                        || params["toolOutput"]["namespace"] != "codex_app"
+                        || params["toolOutput"]["output"] != creation.output
+                        || params["input"] != json!([])
+                        || !params["threadId"]
+                            .as_str()
+                            .is_some_and(|id| self.desktop_threads.contains(id))
+                    {
+                        // 不把缺失图片的首轮送给模型；回执沿原官方请求返回。
+                        return Some(
+                            json!({"id":message["id"],"error":{"code":-32600,"message":"原生图片首轮与官方创建请求不一致，未发送。"}}),
+                        );
+                    }
+                    creation.thread = params["threadId"].as_str().map(str::to_owned);
+                    params["input"] = creation.input.clone();
+                    params["clientUserMessageId"] = json!(creation.message_id);
+                    params.as_object_mut().unwrap().remove("toolOutput");
+                }
+            }
             if valid_id(&message["id"]) {
                 self.next_id += 1;
                 let id = format!("codex-mobile:{}:{}", self.instance, self.next_id);
@@ -181,6 +237,35 @@ impl Router {
             }
         }
         None
+    }
+    fn prepare_image_creation(
+        &mut self,
+        client: &str,
+        params: &Value,
+    ) -> std::result::Result<Value, &'static str> {
+        let source = params["sourceThreadId"].as_str().unwrap_or_default();
+        let key = params["parentTurnId"].as_str().unwrap_or_default();
+        let message_id = params["messageId"].as_str().unwrap_or_default();
+        let prompt = params["prompt"].as_str().unwrap_or_default();
+        if source.is_empty()
+            || message_id.len() < 16
+            || key != format!("mobile-operation-{message_id}")
+            || self.image_creations.contains_key(key)
+            || !params["input"]
+                .as_array()
+                .is_some_and(|input| input.iter().any(|item| item["type"] == "localImage"))
+        {
+            return Err("图片首轮登记无效，请检查当前官方桌面连接。");
+        }
+        let escaped = prompt
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        self.image_creations.insert(key.into(), ImageCreation {
+            client:client.into(), output:format!("<codex_delegation>\n  <source_thread_id>{source}</source_thread_id>\n  <input>{escaped}</input>\n</codex_delegation>"),
+            input:params["input"].clone(), message_id:message_id.into(), thread:None,
+        });
+        Ok(json!({"prepared":true}))
     }
     fn incoming(&mut self, mut message: Value) -> Option<Value> {
         if message["method"].is_string() {
@@ -402,7 +487,10 @@ pub(crate) async fn run<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                                     || (reply["userAgent"].as_str().is_some_and(|agent| agent.starts_with("Codex Desktop/0.171.0-alpha.13.2 "))
                                         && message["method"].is_string() && message["method"] != "initialize" && valid_id(&message["id"]))
                             });
-                            if let Some(message)=router.outgoing(None,message,initialized.as_ref()) { write_line(&mut writer,&message).await?; }
+                            if let Some(message)=router.outgoing(None,message,initialized.as_ref()) {
+                                if message.get("error").is_some() { write_line(&mut output,&message).await?; }
+                                else { write_line(&mut writer,&message).await?; }
+                            }
                             // 当前桌面在初始化回执后直接请求账号，不再发送 initialized；以真实后续请求确认握手完成。
                             if ready { record.state="ready".into();record.publish(&directory)?; }
                         },
@@ -447,6 +535,51 @@ pub(crate) async fn run<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_creation_uses_the_official_first_turn_once() {
+        let mut router = Router::new("instance".into());
+        let (phone, mut replies) = client();
+        router.clients.insert("phone".into(), phone);
+        // 来源授权由桌面入口完成；来源聊天可以尚未订阅控制通道。
+        router.desktop_threads.insert("created".into());
+        let key = "mobile-operation-image-create-12345";
+        let input = json!([{"type":"text","text":"看 <图> & 回答","text_elements":[]},{"type":"localImage","path":"C:/synthetic.png"}]);
+        let prepare = json!({"id":1,"method":"codexMobile/createImage/prepare","params":{
+            "sourceThreadId":"source","parentTurnId":key,"messageId":"image-create-12345","prompt":"看 <图> & 回答","input":input,
+        }});
+        assert!(router
+            .outgoing(Some("phone"), prepare.clone(), None)
+            .is_none());
+        assert_eq!(replies.try_recv().unwrap()["result"]["prepared"], true);
+        router.outgoing(Some("phone"), prepare, None);
+        assert!(replies.try_recv().unwrap()["error"].is_object());
+        let output = router.image_creations[key].output.clone();
+        let start = json!({"id":2,"method":"turn/start","params":{
+            "threadId":"created","parentTurnId":key,"model":"selected-model","input":[],
+            "toolOutput":{"name":"create_thread","namespace":"codex_app","output":output,"retain":true},
+        }});
+        let mut wrong = start.clone();
+        wrong["params"]["toolOutput"]["output"] = json!("wrong source or prompt");
+        assert!(router.outgoing(None, wrong, None).unwrap()["error"].is_object());
+        let sent = router.outgoing(None, start.clone(), None).unwrap();
+        assert_eq!(sent["params"]["input"], input);
+        assert_eq!(sent["params"]["model"], "selected-model");
+        assert!(sent["params"].get("toolOutput").is_none());
+        assert_eq!(sent["params"]["clientUserMessageId"], "image-create-12345");
+        assert!(router.outgoing(None, start, None).unwrap()["error"].is_object());
+        router.outgoing(
+            Some("phone"),
+            json!({"id":3,"method":"codexMobile/createImage/finish","params":{"parentTurnId":key}}),
+            None,
+        );
+        assert_eq!(replies.try_recv().unwrap()["result"]["threadId"], "created");
+        assert!(router.image_creations.is_empty());
+        let ordinary = json!({"id":4,"method":"turn/start","params":{"threadId":"created","input":[{"type":"text","text":"ordinary"}]}});
+        assert_eq!(
+            router.outgoing(None, ordinary.clone(), None).unwrap()["params"],
+            ordinary["params"]
+        );
+    }
     fn client() -> (Client, mpsc::Receiver<Value>) {
         let (sender, receiver) = mpsc::channel(64);
         (
@@ -660,7 +793,10 @@ mod tests {
             json!({"id":"attach","method":"codexMobile/attach"}),
             Some(&json!({})),
         );
-        assert_eq!(replies.try_recv().unwrap()["result"], json!({}));
+        assert_eq!(
+            replies.try_recv().unwrap()["result"],
+            json!({"codexMobileNativeImages":true})
+        );
         // 完成 attach 不授予此前没有收到的服务请求回复权。
         assert!(router
             .outgoing(Some("phone"), reply.clone(), None)
@@ -798,7 +934,9 @@ mod tests {
         let phone = AppServerConnection::connect_broker(&endpoint, &token)
             .await
             .unwrap();
-        assert_eq!(phone.initialized, initialized["result"]);
+        let mut expected = initialized["result"].clone();
+        expected["codexMobileNativeImages"] = json!(true);
+        assert_eq!(phone.initialized, expected);
         assert_eq!(
             phone
                 .rpc("codexMobile/thread/route", json!({"threadId":"chat"}))

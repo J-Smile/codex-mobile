@@ -133,6 +133,15 @@ try {
       await page.getByRole('heading', { name: thread.title, exact: true }).waitFor();
       assert.equal(await page.locator('.chat-header .runtime-label').count(), 0);
       const composer = page.getByRole('textbox', { name: '消息内容', exact: true });
+      capabilities.settings = false; capabilities.images = false; publish();
+      await page.getByRole('button', { name: '更多操作', exact: true }).click();
+      await page.getByText(/工作模式控制连接尚未就绪/).waitFor();
+      assert.equal(await page.getByRole('menuitemradio', { name: '规划', exact: true }).isDisabled(), true);
+      assert.equal(state.calls.filter(call => call.method === 'POST' && call.path.endsWith('/settings')).length, 0);
+      await page.screenshot({path:path.join(output,`mode-disconnected-${native}-${viewport.width}.png`),animations:'disabled'});
+      capabilities.settings = true; capabilities.images = true; publish();
+      await page.waitForFunction(() => document.querySelector('[role="menuitemradio"][aria-checked="false"]')?.disabled === false);
+      await page.getByRole('button', { name: '收起更多操作', exact: true }).click();
       await composer.fill('问题出现前的草稿');
       state.interactions = [{ id: 'question-generation-one', turnId: 'question-turn', kind: 'questions', title: '合成问题', message: '', replySupported: true, questions: [{ id: 'answer', header: '', question: '输入合成答案', options: [] }] }]; publish();
       await page.getByRole('textbox', { name: '你的回复', exact: true }).fill('合成回答');

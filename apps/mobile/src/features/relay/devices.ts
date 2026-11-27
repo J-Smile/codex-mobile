@@ -86,6 +86,12 @@ export const loadDesktops = (accountId: string) => editDevices<Desktop[]>(accoun
 export const saveDesktop = (accountId: string, desktop: Desktop) => editDevices(accountId, 'readwrite', store => store.put(desktop));
 export const forgetDesktop = (accountId: string, id: string) => editDevices(accountId, 'readwrite', store => store.delete(id));
 
+export async function removeAccountDesktop(id: string) {
+  const response = await fetch('/relay/account/desktops/' + encodeURIComponent(id), { method: 'DELETE', redirect: 'error' });
+  if (response.status === 401) throw new Error('登录已过期，请重新登录后移除。');
+  if (!response.ok && response.status !== 404) throw new Error('无法从云账号移除这台电脑，请重试。');
+}
+
 export async function linkDesktop(desktopId: string, code: string) {
   const response = await fetch('/relay/account/desktop-link', {
     method: 'POST',

@@ -1041,6 +1041,7 @@ impl Bridge {
                 "settings",
                 "goals",
                 "contextBrowser",
+                "images",
             ] {
                 snapshot["capabilities"][capability] = json!(false);
             }

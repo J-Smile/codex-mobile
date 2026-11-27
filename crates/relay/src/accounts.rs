@@ -105,6 +105,11 @@ impl Accounts {
                  desktop_id TEXT NOT NULL,
                  UNIQUE (account_id, desktop_id),
                  FOREIGN KEY (account_id, desktop_id) REFERENCES desktops(account_id, id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS removed_desktops (
+                 account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                 desktop_id TEXT NOT NULL,
+                 PRIMARY KEY (account_id, desktop_id)
              );",
         )?;
         Ok(Self(Mutex::new(db)))
@@ -369,6 +374,8 @@ impl Accounts {
         } else {
             "SELECT id FROM accounts WHERE desktop_key = ?1 AND NOT EXISTS (
                  SELECT 1 FROM desktop_credentials WHERE account_id = accounts.id AND desktop_id = ?2
+             ) AND NOT EXISTS (
+                 SELECT 1 FROM removed_desktops WHERE account_id = accounts.id AND desktop_id = ?2
              )"
         };
         self.0
@@ -425,8 +432,31 @@ impl Accounts {
         if inserted == 0 {
             return Ok(Some(false));
         }
+        tx.execute(
+            "DELETE FROM removed_desktops WHERE account_id = ?1 AND desktop_id = ?2",
+            params![account, id],
+        )?;
         tx.commit()?;
         Ok(Some(true))
+    }
+
+    pub(crate) fn remove_desktop(&self, account: &str, id: &str) -> rusqlite::Result<bool> {
+        let mut db = self.0.lock().unwrap();
+        let tx = db.transaction()?;
+        let removed = tx.execute(
+            "DELETE FROM desktops WHERE account_id = ?1 AND id = ?2",
+            params![account, id],
+        )?;
+        if removed == 0 {
+            return Ok(false);
+        }
+        // 旧版账号级密钥仍可登记设备，保留撤销记录直到用户重新扫码。
+        tx.execute(
+            "INSERT OR IGNORE INTO removed_desktops(account_id, desktop_id) VALUES (?1, ?2)",
+            params![account, id],
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 
     pub(crate) fn register_desktop(

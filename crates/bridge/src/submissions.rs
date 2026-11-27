@@ -138,12 +138,11 @@ impl Submissions {
                         .images
                         .attachments(&images)
                         .map_err(BridgeError::before_send)?;
-                    let prompt = crate::images::context_prompt(&prompt, &attachments);
                     this.desktop
                         .create_chat(
                             &source,
                             &project,
-                            &prompt,
+                            (&prompt, &attachments),
                             &request_id,
                             title.as_deref(),
                             &selection,

@@ -345,11 +345,12 @@ impl Desktop {
         self: &Arc<Self>,
         source: &str,
         project: &str,
-        prompt: &str,
+        content: (&str, &[Value]),
         request_id: &str,
         title: Option<&str>,
         selection: &MessageModel,
     ) -> Result<Value> {
+        let (prompt, images) = content;
         self.session.require("create")?;
         let projects = self
             .scoped_projects(source)
@@ -358,14 +359,20 @@ impl Desktop {
         if !projects.iter().any(|row| row["projectId"] == project) {
             return Err(BridgeError::invalid("该官方本机项目已不可用，请重新选择。").before_send());
         }
-        let connection = self
-            .session
-            .connect()
-            .await?
+        let control = self.session.connect().await?;
+        if !images.is_empty() {
+            self.session.require("images")?;
+            control.rpc("codexMobile/createImage/prepare", json!({
+                "parentTurnId":format!("mobile-operation-{request_id}"),
+                "sourceThreadId":source,"prompt":if prompt.is_empty() {"请查看这些图片。"} else {prompt},
+                "input":Self::input(prompt, images),"messageId":request_id,
+            })).await.map_err(BridgeError::before_send)?;
+        }
+        let connection = control
             .native_tools()
             .ok_or_else(|| BridgeError::unavailable("新建需要官方原生桌面入口。").before_send())?;
         let mut args = json!({
-            "prompt":prompt, "target":{"type":"project","projectId":project,"environment":{"type":"local"}},
+            "prompt":if prompt.is_empty() {"请查看这些图片。"} else {prompt}, "target":{"type":"project","projectId":project,"environment":{"type":"local"}},
         });
         if let Some(title) = title {
             args["title"] = json!(title);
@@ -380,6 +387,21 @@ impl Desktop {
             return Err(BridgeError::unavailable(
                 "创建尚未返回正式本机聊天 ID，请在桌面核对；不会再次创建。",
             ));
+        }
+        if !images.is_empty() {
+            let receipt = control
+                .rpc(
+                    "codexMobile/createImage/finish",
+                    json!({
+                        "parentTurnId":format!("mobile-operation-{request_id}"),
+                    }),
+                )
+                .await?;
+            if receipt["threadId"].as_str() != id {
+                return Err(BridgeError::unavailable(
+                    "官方桌面尚未确认首条图片附件，请核对原聊天；不会重复创建。",
+                ));
+            }
         }
         Ok(json!({"status":"created","threadId":id,"firstTurnAccepted":false}))
     }
@@ -1294,9 +1316,9 @@ impl Desktop {
     ) -> Result<Value> {
         self.session.require("send")?;
         let connection = self.session.connect().await?;
-        if let Some(native) = connection.native_tools() {
+        if let Some(native) = connection.native_tools().filter(|_| images.is_empty()) {
             self.require_route(&native, id).await?;
-            let mut args = json!({"threadId":id,"hostId":"local","prompt":crate::images::context_prompt(prompt, images)});
+            let mut args = json!({"threadId":id,"hostId":"local","prompt":prompt});
             selection.apply(&mut args);
             let result = Self::native_call(
                 &native,
@@ -1316,6 +1338,10 @@ impl Desktop {
                 follow.refresh.notify_one();
             }
             return Ok(json!({"status":"accepted","threadId":id,"messageId":message_id}));
+        }
+        if !images.is_empty() {
+            self.session.require("images")?;
+            self.require_route(&connection, id).await?;
         }
         let lock = self.queue_lock(id).await;
         let _guard = lock.lock().await;

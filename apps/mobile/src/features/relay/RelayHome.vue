@@ -10,7 +10,7 @@ import RelayDeviceRow from './RelayDeviceRow.vue';
 import RelayServerLatency from './RelayServerLatency.vue';
 import RelayWelcomePreview from './RelayWelcomePreview.vue';
 import { requestDesktopApproval } from './desktopApproval';
-import { forgetDesktop, linkDesktop, loadDesktops, readPairingInvitation, saveDesktop, type Desktop, type PairingInvitation, type PairingTarget } from './devices';
+import { forgetDesktop, linkDesktop, loadDesktops, readPairingInvitation, removeAccountDesktop, saveDesktop, type Desktop, type PairingInvitation, type PairingTarget } from './devices';
 import { createPasskey, signInWithPasskey, signUpWithPasskey, supportsPasskeys } from './passkeys';
 import { useRelayLatency } from './useRelayLatency';
 
@@ -55,6 +55,7 @@ const accountLabel = computed(() => {
 const passkeyError = ref('');
 const link = ref('');
 const remove = ref('');
+const removing = ref('');
 const pageVisible = ref(!document.hidden);
 const statusKnown = ref(false);
 const deviceRows = computed(() => {
@@ -82,7 +83,7 @@ const { serverLatency, desktopLatency } = useRelayLatency({
 });
 
 watch(
-  () => pageVisible.value && !loading.value && (pickerOpen.value || !active.value && !!deviceRows.value.length) ? account.value?.id : undefined,
+  () => pageVisible.value && !loading.value && !removing.value ? account.value?.id : undefined,
   (accountId, _, onCleanup) => {
     if (!accountId) return;
     let stopped = false;
@@ -95,12 +96,16 @@ watch(
       try {
         const current = await readAccount(controller.signal);
         if (stopped) return;
-        if (current?.id !== accountId) {
+        if (!current || current.id !== accountId) {
           location.reload();
           return;
         }
         account.value = current;
         statusKnown.value = true;
+        if (active.value && !current.desktops.some(item => item.id === active.value?.id)) {
+          releaseConnection?.();
+          choose();
+        }
       } catch {
         if (!stopped) statusKnown.value = false;
       } finally {
@@ -176,7 +181,7 @@ async function enrollPasskey() {
 }
 
 async function signOut() {
-  if (!account.value || changingAccount.value) return;
+  if (!account.value || changingAccount.value || removing.value) return;
   accountAction.value = 'sign-out';
   error.value = '';
   try {
@@ -202,6 +207,7 @@ function choose(desktop?: Desktop, accountId = account.value?.id) {
 }
 
 function selectDesktop(target: PairingTarget, desktop?: Desktop) {
+  if (removing.value) return;
   if (!desktop) {
     error.value = '';
     pairingTarget.value = target;
@@ -214,7 +220,7 @@ function selectDesktop(target: PairingTarget, desktop?: Desktop) {
 }
 
 async function add(value: string | PairingInvitation = link.value) {
-  if (pairing.value) return;
+  if (pairing.value || removing.value) return;
   scanOpen.value = false;
   error.value = '';
   accountError.value = '';
@@ -326,7 +332,7 @@ async function cancelRemoval() {
 }
 
 async function forget(desktop: Desktop) {
-  if (!account.value) return;
+  if (!account.value || removing.value) return;
   error.value = '';
   try {
     await forgetDesktop(account.value.id, desktop.id);
@@ -337,6 +343,28 @@ async function forget(desktop: Desktop) {
   } catch {
     error.value = '无法移除本机保存的配对，请重试。';
   }
+}
+
+async function removeFromAccount(id: string) {
+  const current = account.value;
+  if (!current || removing.value || pairing.value || changingAccount.value) return;
+  removing.value = id;
+  error.value = '';
+  try {
+    await removeAccountDesktop(id);
+    account.value = { ...current, desktops: current.desktops.filter(item => item.id !== id) };
+    desktops.value = desktops.value.filter(item => item.id !== id);
+    remove.value = '';
+    removalTrigger = undefined;
+    try { await forgetDesktop(current.id, id); }
+    catch { error.value = '电脑已从云账号移除，但本机配对缓存未清理；请刷新页面。'; }
+    if (id === active.value?.id) {
+      releaseConnection?.();
+      choose();
+    }
+  } catch (failure) {
+    error.value = (failure as Error).message;
+  } finally { removing.value = ''; }
 }
 
 async function initialize() {
@@ -407,6 +435,7 @@ function openPicker() {
 }
 
 function scanForDesktop() {
+  if (removing.value) return;
   error.value = '';
   pairingTarget.value = undefined;
   scanOpen.value = true;
@@ -478,11 +507,12 @@ onUnmounted(() => {
             <div class="relay-directory-heading"><h2 id="relay-directory-title">已添加</h2><span>{{ deviceRows.length }} 台</span></div>
             <div class="relay-device-list">
               <RelayDeviceRow v-for="{ id, name, paired, online, status } in deviceRows" :key="id"
-                :name="name" :paired="!!paired" :online="online" :status="status" :latency="desktopLatency.get(id)" :disabled="changingAccount || pairing"
-                @select="selectDesktop({ id, name }, paired)" />
+                :name="name" :paired="!!paired" :online="online" :status="status" :latency="desktopLatency.get(id)" :disabled="changingAccount || pairing || !!removing"
+                :confirm-removal="remove === id" :removing="removing === id" @select="selectDesktop({ id, name }, paired)"
+                @toggle-removal="toggleRemoval(id, $event)" @cancel-removal="cancelRemoval" @forget="paired && forget(paired)" @remove-account="removeFromAccount(id)" />
             </div>
           </section>
-          <button class="primary-button relay-primary" type="button" :disabled="pairing || changingAccount" :aria-busy="pairing" @click="scanForDesktop">
+          <button class="primary-button relay-primary" type="button" :disabled="pairing || changingAccount || !!removing" :aria-busy="pairing" @click="scanForDesktop">
             <Loading v-if="pairing" class="is-spin" aria-hidden="true" /><FullScreen v-else aria-hidden="true" />{{ pairing ? '正在连接电脑…' : '添加电脑' }}
           </button>
           <div class="relay-account-row">
@@ -536,24 +566,16 @@ onUnmounted(() => {
     <p v-if="error" ref="pickerFeedback" class="relay-feedback relay-picker-feedback error-text" tabindex="-1" role="alert">{{ error }}</p>
     <RelayServerLatency class="relay-picker-latency" :sample="serverLatency" />
     <div v-if="deviceRows.length" class="relay-device-list">
-      <div v-for="{ id, name, paired, online, status } in deviceRows" :key="id" class="relay-device-entry">
-        <RelayDeviceRow :name="name" :paired="!!paired" :online="online" :status="status" :latency="desktopLatency.get(id)" :current="id === active?.id"
-          :disabled="pairing || changingAccount" @select="selectDesktop({ id, name }, paired)">
-          <button v-if="paired" class="icon-button relay-device-remove" type="button" :disabled="pairing || changingAccount"
-            :aria-label="'移除 ' + name" :aria-expanded="remove === id" :aria-controls="'remove-desktop-' + id"
-            @click="toggleRemoval(id, $event)"><Close /></button>
-        </RelayDeviceRow>
-        <div v-if="paired" v-show="remove === id" :id="'remove-desktop-' + id" class="relay-remove">
-          <p class="muted">从这台手机移除配对。</p>
-          <button type="button" class="text-button relay-confirm-removal" :disabled="pairing || changingAccount" @click="forget(paired)">确认移除</button>
-          <button type="button" class="text-button" @click="cancelRemoval">取消</button>
-        </div>
-      </div>
+      <RelayDeviceRow v-for="{ id, name, paired, online, status } in deviceRows" :key="id"
+        :name="name" :paired="!!paired" :online="online" :status="status" :latency="desktopLatency.get(id)" :current="id === active?.id"
+        :disabled="pairing || changingAccount || !!removing" :confirm-removal="remove === id" :removing="removing === id"
+        @select="selectDesktop({ id, name }, paired)" @toggle-removal="toggleRemoval(id, $event)" @cancel-removal="cancelRemoval"
+        @forget="paired && forget(paired)" @remove-account="removeFromAccount(id)" />
     </div>
     <div class="relay-picker-actions">
       <DesktopApprovalStatus v-if="approval" v-bind="approval" @cancel="cancelWithFeedback" />
       <template v-else>
-        <button class="primary-button relay-primary" type="button" :disabled="pairing || changingAccount" :aria-busy="pairing" @click="scanOpen = true">
+        <button class="primary-button relay-primary" type="button" :disabled="pairing || changingAccount || !!removing" :aria-busy="pairing" @click="scanOpen = true">
           <Loading v-if="pairing" class="is-spin" aria-hidden="true" /><FullScreen v-else aria-hidden="true" />
           {{ pairing ? '正在连接电脑…' : pairingTarget ? '扫码配对「' + pairingTarget.name + '」' : '扫码添加电脑' }}
         </button>
@@ -638,17 +660,7 @@ onUnmounted(() => {
 .relay-sheet-heading { margin-bottom: 10px; }
 .relay-picker-latency { margin-bottom: 10px; }
 .relay-device-list { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--page); }
-.relay-device-list > .relay-device-row + .relay-device-row, .relay-device-entry + .relay-device-entry { border-top: 1px solid var(--border); }
-.relay-device-remove { margin-inline-end: 4px; color: var(--muted); }
-.relay-device-remove svg { width: 15px; height: 15px; }
-.relay-device-remove[aria-expanded="true"] { color: var(--error); background: var(--panel); }
-.relay-remove {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 2px 12px;
-  border-top: 1px solid var(--border); background: var(--sidebar);
-}
-.relay-remove p { flex: 1; min-width: 90px; margin: 7px 0; font-size: 12px; }
-.relay-remove .text-button { flex: none; min-height: 44px; font-size: 13px; }
-.relay-confirm-removal, .relay-confirm-removal:hover { color: var(--error); }
+.relay-device-entry + .relay-device-entry { border-top: 1px solid var(--border); }
 .relay-picker-actions { display: grid; gap: 7px; margin-top: 14px; }
 .relay-picker-feedback { margin-bottom: 10px; }
 .relay-link-disclosure summary { cursor: pointer; list-style: none; color: var(--muted); }

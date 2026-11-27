@@ -110,41 +110,6 @@ impl Images {
         ids.iter().map(|id|{let image=self.read(id)?;Ok(json!({"id":id,"src":image["path"],"localPath":image["path"],"filename":image["name"]}))}).collect()
     }
 }
-pub fn context_prompt(prompt: &str, images: &[Value]) -> String {
-    if images.is_empty() {
-        return prompt.into();
-    }
-    let references = images
-        .iter()
-        .map(|image| {
-            let name = image["filename"]
-                .as_str()
-                .unwrap_or("")
-                .chars()
-                .map(|c| {
-                    if "\\[]*_`&<>".contains(c) {
-                        format!("&#{};", c as u32)
-                    } else {
-                        c.to_string()
-                    }
-                })
-                .collect::<String>();
-            format!(
-                "![{name}](<{}>)",
-                image["localPath"].as_str().unwrap_or("").replace('\\', "/")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    format!(
-        "图片引用（请使用读图工具查看这些本地文件）：\n\n{references}\n\n我的请求：\n{}",
-        if prompt.is_empty() {
-            "请查看这些图片。"
-        } else {
-            prompt
-        }
-    )
-}
 pub(crate) fn markdown_paths(text: &str) -> impl Iterator<Item = &str> {
     static LINKS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r#"!?\[[^\]]*\]\((?:<([^>]+)>|([^\)\s]+))(?:\s+"[^"]*")?\)"#).unwrap()
