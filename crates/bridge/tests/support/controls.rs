@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use std::{sync::Arc, time::Duration};
 use support::{Fixture, MockDesktop};
 
-async fn desktop(f: &Fixture) -> Arc<Desktop> {
+pub(super) async fn desktop(f: &Fixture) -> Arc<Desktop> {
     let session = Session::new(f.paths.clone());
     session.enable_shared_fixture();
     session.connect().await.unwrap();

@@ -105,7 +105,15 @@ const server = http.createServer(async (request, response) => {
       const rows = state.queue.messages;
       if (input.action === 'edit') rows.find(row => row.id === input.messageId).prompt = input.prompt;
       else if (input.action === 'reorder') state.queue.messages = input.messageIds.map(id => rows.find(row => row.id === id));
-      else state.queue.messages = rows.filter(row => row.id !== input.messageId);
+      else {
+        if (input.action === 'send') {
+          const message = rows.find(row => row.id === input.messageId);
+          const item = { id: message.id, type: 'userMessage', content: [{ type: 'text', text: message.prompt }] };
+          if (state.turns.at(-1)?.status === 'inProgress') state.turns.at(-1).items.push(item);
+          else state.turns.push({ id: 'queue-started-turn', status: 'inProgress', items: [item] });
+        }
+        state.queue.messages = rows.filter(row => row.id !== input.messageId);
+      }
       state.queue.revision += '-next'; publish(); return json(state.queue);
     }
     return json({ message: '合成接口不支持' }, 404);
@@ -120,7 +128,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 const browser = await chromium.launch({ headless: true });
 try {
-  for (const native of [false, true]) for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 900 }]) {
+  for (const native of [false, true]) for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 900 }]) {
     Object.assign(capabilities, { native, interactions: true, asyncReplies: native, interrupt: true, queue: true });
     state = { calls: [], streams: new Map(), turns: [], interactions: [], queue: { revision: 'empty', messages: [] } };
     const context = await browser.newContext({ viewport, hasTouch: true, isMobile: viewport.width < 900, serviceWorkers: 'block', reducedMotion: 'reduce' });
@@ -169,8 +177,26 @@ try {
       await page.getByRole('button', { name: '上移第 2 条消息', exact: true }).click();
       await page.locator('.queue-row').first().getByText('第二条', { exact: true }).waitFor();
       assert.equal(state.queue.messages[0].id, 'second-row');
+      const activeSend = page.getByRole('button', { name: '立即发送第 2 条消息', exact: true });
+      assert.equal(await activeSend.isEnabled(), true);
+      assert.equal(await activeSend.getAttribute('title'), '立即追加到当前任务');
+      await page.screenshot({ path: path.join(output, `queue-active-${native ? 'native-' : ''}${viewport.width}.png`) });
+      await activeSend.click();
+      await page.waitForFunction(() => document.querySelectorAll('.queue-row').length === 1);
+      assert.equal(state.turns.at(-1).id, 'continued-turn');
+      assert.equal(state.turns.at(-1).status, 'inProgress');
+      assert.equal(state.turns.at(-1).items.at(-1).id, 'queued-image');
+      assert.equal(state.calls.filter(call => call.path.endsWith('/interrupt')).length, 1);
+      assert.equal(state.calls.filter(call => call.path.endsWith('/queue') && call.input?.action === 'send').length, 1);
+      state.queue.messages.push({ id: 'delete-row', prompt: '待删除样例', status: 'queued' }); state.queue.revision += '-new'; publish();
+      await page.getByText('待删除样例', { exact: true }).waitFor();
       await page.getByRole('button', { name: '停止任务', exact: true }).click();
-      await page.getByRole('button', { name: '执行第 1 条消息', exact: true }).click();
+      const idleSend = page.getByRole('button', { name: '立即发送第 1 条消息', exact: true });
+      await page.waitForFunction(() => document.querySelector('[aria-label="立即发送第 1 条消息"]')?.title === '立即执行');
+      await idleSend.click();
+      await page.waitForFunction(() => document.querySelectorAll('.queue-row').length === 1);
+      assert.equal(state.turns.at(-1).id, 'queue-started-turn');
+      assert.equal(state.turns.at(-1).items[0].id, 'second-row');
       await page.getByRole('button', { name: '删除第 1 条消息', exact: true }).click();
       await page.locator('.message-queue').waitFor({ state: 'hidden' });
       await page.getByRole('button', { name: '新建聊天', exact: true }).click();

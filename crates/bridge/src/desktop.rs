@@ -40,6 +40,15 @@ pub struct Follow {
 type NativeReadFuture = Shared<BoxFuture<'static, Result<Value>>>;
 type NativeReads = std::sync::Mutex<HashMap<(String, String), Weak<NativeReadFuture>>>;
 
+#[derive(Default)]
+struct QueueState {
+    dispatches: HashMap<String, QueueDispatch>,
+}
+enum QueueDispatch {
+    Unconfirmed,
+    Steered,
+}
+
 struct NativeRead<'a> {
     reads: &'a NativeReads,
     key: (String, String),
@@ -74,7 +83,7 @@ pub struct Desktop {
     native_reads: NativeReads,
     catalog_instance: Mutex<Option<String>>,
     follows: std::sync::Mutex<HashMap<String, Arc<Follow>>>,
-    queue_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    queue_locks: Mutex<HashMap<String, Arc<Mutex<QueueState>>>>,
     cancel: CancellationToken,
     pub last_native_error: RwLock<Option<String>>,
 }
@@ -1049,7 +1058,9 @@ impl Desktop {
                 )
                 .before_send());
             }
-            let prompt = format!("请继续本聊天中轮次 {turn_id} 未完成的任务。先核对已有结果，避免重复已经完成的操作；保留原任务约束。");
+            let prompt = format!(
+                "请继续本聊天中轮次 {turn_id} 未完成的任务。先核对已有结果，避免重复已经完成的操作；保留原任务约束。"
+            );
             return self
                 .send_message(
                     id,
@@ -1263,13 +1274,107 @@ impl Desktop {
         let (_, connection) = self.connected_follow(id).await?;
         Self::enqueue_on(&connection, id, prompt, message_id, images).await
     }
-    async fn queue_lock(&self, id: &str) -> Arc<Mutex<()>> {
+    async fn queue_lock(&self, id: &str) -> Arc<Mutex<QueueState>> {
         self.queue_locks
             .lock()
             .await
             .entry(id.into())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .or_insert_with(|| Arc::new(Mutex::new(QueueState::default())))
             .clone()
+    }
+    async fn send_queued(
+        connection: &AppServerConnection,
+        follow: &Follow,
+        id: &str,
+        message_id: &str,
+        row: &Value,
+        queue_state: &mut QueueState,
+    ) -> Result<()> {
+        match queue_state.dispatches.get(message_id) {
+            Some(QueueDispatch::Steered) => {}
+            Some(QueueDispatch::Unconfirmed) => {
+                return Err(BridgeError::new(
+                    409,
+                    "这条消息的发送结果仍待确认，请刷新后核对；不会重复发送。",
+                ));
+            }
+            None => {
+                let state = follow.state.read().await;
+                let active_turn = state.active_turn().map(str::to_owned);
+                let active = state.thread["status"] == "active"
+                    || state.thread["status"]["type"] == "active";
+                drop(state);
+                let Some(turn_id) = active_turn else {
+                    if active {
+                        return Err(BridgeError::new(
+                            409,
+                            "当前任务正在切换，请等待同步后再发送。",
+                        )
+                        .before_send());
+                    }
+                    connection
+                        .rpc(
+                            "thread/queue/start",
+                            json!({"threadId":id,"queuedSubmissionId":message_id}),
+                        )
+                        .await?;
+                    return Ok(());
+                };
+                let client_id = row["clientUserMessageId"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        BridgeError::unavailable("Codex 队列消息标识无效，尚未发送。").before_send()
+                    })?;
+                queue_state
+                    .dispatches
+                    .insert(message_id.into(), QueueDispatch::Unconfirmed);
+                let result = connection
+                    .rpc(
+                        "turn/steer",
+                        json!({"threadId":id,"expectedTurnId":turn_id,
+                            "clientUserMessageId":client_id,"input":row["input"]}),
+                    )
+                    .await;
+                if let Err(error) = result {
+                    if error.before_send || error.rpc_error.is_some() {
+                        queue_state.dispatches.remove(message_id);
+                    }
+                    return Err(error);
+                }
+                queue_state
+                    .dispatches
+                    .insert(message_id.into(), QueueDispatch::Steered);
+            }
+        }
+        // 与官方桌面一致：先追加，确认后再移除；移除失败时保留回执，重试不再发送。
+        let deleted = connection
+            .rpc(
+                "thread/queue/delete",
+                json!({"threadId":id,"queuedSubmissionId":message_id}),
+            )
+            .await
+            .map_err(|error| {
+                BridgeError::new(
+                    error.status,
+                    format!(
+                        "消息已发送，移除队列失败；再次操作只会重试移除：{}",
+                        error.message
+                    ),
+                )
+            })?;
+        if deleted["deleted"] != true
+            && Self::queue_rows(connection, id)
+                .await?
+                .iter()
+                .any(|row| row["id"] == message_id)
+        {
+            return Err(BridgeError::unavailable(
+                "消息已发送，队列仍待移除；再次操作只会重试移除。",
+            ));
+        }
+        queue_state.dispatches.remove(message_id);
+        Ok(())
     }
     pub async fn update_queue(self: &Arc<Self>, id: &str, change: QueueChange) -> Result<Value> {
         let capability = match &change.operation {
@@ -1280,9 +1385,12 @@ impl Desktop {
         };
         self.session.require(capability)?;
         let lock = self.queue_lock(id).await;
-        let _guard = lock.lock().await;
-        let (_, connection) = self.connected_follow(id).await?;
+        let mut queue_state = lock.lock().await;
+        let (follow, connection) = self.connected_follow(id).await?;
         let rows = Self::queue_rows(&connection, id).await?;
+        queue_state
+            .dispatches
+            .retain(|message_id, _| rows.iter().any(|row| row["id"] == *message_id));
         if Self::queue_snapshot(&rows)["revision"] != change.revision {
             return Err(BridgeError::new(409, "队列已变化，请刷新确认。").before_send());
         }
@@ -1310,18 +1418,50 @@ impl Desktop {
                     | QueueOperation::Send { message_id }
                     | QueueOperation::Edit { message_id, .. } => message_id,
                     _ => unreachable!(),
-                };
+                }
+                .clone();
                 let row = rows
                     .iter()
-                    .find(|row| row["id"] == *message_id)
+                    .find(|row| row["id"] == message_id)
                     .ok_or_else(|| {
                         BridgeError::new(409, "待执行项已变化，请刷新确认。").before_send()
                     })?;
+                // 重连后以官方消息回执恢复已发送状态，仅补做队列移除。
+                if let Some(client_id) = row["clientUserMessageId"].as_str() {
+                    let state = follow.state.read().await;
+                    if state.turns.iter().any(|turn| {
+                        turn["items"].as_array().into_iter().flatten().any(|item| {
+                            item["type"] == "userMessage" && item["clientId"] == client_id
+                        })
+                    }) {
+                        queue_state
+                            .dispatches
+                            .insert(message_id.clone(), QueueDispatch::Steered);
+                    }
+                }
                 let mut params = json!({"queuedSubmissionId":message_id});
                 let method = match operation {
                     QueueOperation::Delete { .. } => "thread/queue/delete",
-                    QueueOperation::Send { .. } => "thread/queue/start",
+                    QueueOperation::Send { message_id } => {
+                        Self::send_queued(
+                            &connection,
+                            &follow,
+                            id,
+                            &message_id,
+                            row,
+                            &mut queue_state,
+                        )
+                        .await?;
+                        return Self::read_queue(&connection, id).await;
+                    }
                     QueueOperation::Edit { prompt, .. } => {
+                        if queue_state.dispatches.contains_key(&message_id) {
+                            return Err(BridgeError::new(
+                                409,
+                                "这条消息已经提交，请先刷新并移除队列项。",
+                            )
+                            .before_send());
+                        }
                         let mut input: Vec<Value> = row["input"]
                             .as_array()
                             .ok_or_else(|| {

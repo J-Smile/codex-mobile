@@ -50,7 +50,7 @@ function toggle() {
             <span v-if="message.attachmentCount" class="muted small">{{ message.attachmentCount }} 个附件</span>
           </div>
           <div class="queue-actions">
-            <button v-if="capabilities?.queueStart" type="button" class="icon-button" :disabled="disabled || busy || loading || active" :aria-label="'执行第 ' + (index + 1) + ' 条消息'" @click="actions.send?.(message.id)"><VideoPlay /></button>
+            <button v-if="capabilities?.queueStart" type="button" class="icon-button" :disabled="disabled || busy || loading" :title="active ? '立即追加到当前任务' : '立即执行'" :aria-label="'立即发送第 ' + (index + 1) + ' 条消息'" @click="actions.send?.(message.id)"><VideoPlay /></button>
             <button v-if="capabilities?.queueEdit" type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'编辑第 ' + (index + 1) + ' 条消息'" @click="edit(message)"><EditPen /></button>
             <button v-if="capabilities?.queueReorder && index > 0" type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'上移第 ' + (index + 1) + ' 条消息'" @click="move(index)"><ArrowUp /></button>
             <button type="button" class="icon-button" :disabled="disabled || busy || loading" :aria-label="'删除第 ' + (index + 1) + ' 条消息'" @click="actions.remove(message.id)"><Delete /></button>

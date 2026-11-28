@@ -53,6 +53,27 @@ test('实时队列更新到达后，旧读取结果不会覆盖最新顺序', as
   assert.equal(queue.loading.value, false);
 });
 
+test('立即发送等待回执期间重复点击只提交一次，失败后保留队列', async t => {
+  const pending = deferred();
+  const calls = [];
+  const original = snapshot('current', ['selected', 'next']);
+  const { queue } = fixture(t, (_, options) => {
+    if (options.method !== 'POST') return Promise.resolve(response(original));
+    calls.push(JSON.parse(options.body));
+    return pending.promise;
+  });
+  await setImmediate();
+  const sending = queue.send('selected');
+  assert.equal(queue.busy.value, true);
+  assert.equal(await queue.send('selected'), false);
+  assert.equal(calls.length, 1);
+  pending.resolve(response({ message: '消息已发送，移除队列失败；再次操作只会重试移除。' }, 503));
+  assert.equal(await sending, false);
+  assert.deepEqual(queue.queue.value, original);
+  assert.equal(queue.busy.value, false);
+  assert.match(queue.error.value, /消息已发送/);
+});
+
 test('重连收到原生持久化队列后清除旧接口错误，不留下错误提示', async (t) => {
   const { queue } = fixture(t, () => Promise.resolve(response({ message: '找不到这个接口' }, 404)));
   await setImmediate();

@@ -37,6 +37,9 @@ pub(crate) mod native_test_support;
 #[path = "../tests/support/official_controls.rs"]
 mod official_controls;
 #[cfg(test)]
+#[path = "../tests/support/queue_send.rs"]
+mod queue_send_regression;
+#[cfg(test)]
 #[path = "../tests/support/restoration_lifecycle.rs"]
 mod restoration_lifecycle;
 #[cfg(test)]
