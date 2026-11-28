@@ -1301,17 +1301,9 @@ impl Desktop {
             None => {
                 let state = follow.state.read().await;
                 let active_turn = state.active_turn().map(str::to_owned);
-                let active = state.thread["status"] == "active"
-                    || state.thread["status"]["type"] == "active";
                 drop(state);
                 let Some(turn_id) = active_turn else {
-                    if active {
-                        return Err(BridgeError::new(
-                            409,
-                            "当前任务正在切换，请等待同步后再发送。",
-                        )
-                        .before_send());
-                    }
+                    // 聊天状态可能晚于轮次完成通知；由官方原子接口校验是否仍有活动或待启动轮次。
                     connection
                         .rpc(
                             "thread/queue/start",

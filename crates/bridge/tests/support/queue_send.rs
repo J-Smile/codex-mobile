@@ -488,3 +488,49 @@ async fn changed_active_turn_rejects_steering_without_consuming_queue() {
     assert_no_interrupt_or_replay(&mock).await;
     client.close().await;
 }
+
+#[tokio::test]
+async fn completed_turn_sends_queue_while_thread_status_is_still_syncing() {
+    let fixture = Fixture::new();
+    let mock = MockDesktop::start_control_fixture(&fixture).await;
+    seed(&mock, true).await;
+    let client = desktop(&fixture).await;
+    let mut stream = live(&client).await;
+    let before = client.queue(THREAD).await.unwrap();
+    // 官方已经空闲，但仅有 turn/completed 先抵达，聊天 active 标记尚未更新。
+    let completed = {
+        let mut threads = mock.threads.lock().await;
+        let state = threads.get_mut(THREAD).unwrap();
+        state["thread"]["status"] = json!({"type":"idle"});
+        state["thread"]["turns"][0]["status"] = json!("interrupted");
+        state["thread"]["turns"][0].clone()
+    };
+    mock.broadcasts
+        .send(json!({"method":"turn/completed","params":{"threadId":THREAD,"turn":completed}}))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if stream
+                .borrow()
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s["turns"][0]["status"] == "interrupted")
+            {
+                break;
+            }
+            stream.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    let queue = client
+        .update_queue(THREAD, send_change(&before))
+        .await
+        .unwrap();
+    assert_eq!(queue["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(mock.count("thread/queue/start").await, 1);
+    assert_eq!(mock.count("turn/steer").await, 0);
+    assert_eq!(mock.count("thread/queue/delete").await, 0);
+    assert_no_interrupt_or_replay(&mock).await;
+    client.close().await;
+}
